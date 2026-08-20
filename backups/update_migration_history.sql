@@ -1,0 +1,3 @@
+DELETE FROM _prisma_migrations WHERE migration_name='0001_init';
+INSERT INTO _prisma_migrations (id, checksum, finished_at, migration_name, logs, rolled_back_at, started_at, applied_steps_count) VALUES (UUID(), '03a5a760add7224c1d080fdf3eea3a1366db92220687ed83bce8966a9c65a383', NOW(3), '0001_init', NULL, NULL, NOW(3), 0);
+SELECT migration_name, LEFT(checksum,30) AS checksum_prefix, finished_at FROM _prisma_migrations;
