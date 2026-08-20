@@ -22,29 +22,19 @@ type Role = {
   roleName: string;
 };
 
-function formatBeijingTimeString(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  }).format(date);
-}
-
 export default function UserList({ users, roles, keyword, status, roleCode }: { users: User[]; roles: Role[]; keyword: string; status: string; roleCode: string }) {
   const [list, setList] = useState(users);
   const [showForm, setShowForm] = useState(false);
   const [message, setMessage] = useState('');
   const [resetPassword, setResetPassword] = useState<{ id: string; password: string } | null>(null);
+  const [editingUser, setEditingUser] = useState<{ id: string; displayName: string; department: string; roleCode: string; status: string } | null>(null);
   const [search, setSearch] = useState({ keyword, status, roleCode });
 
   const currentUsers = useMemo(() => list, [list]);
+
+  function getRoleName(code: string) {
+    return roles.find((role) => role.roleCode === code)?.roleName ?? code;
+  }
 
   async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -71,6 +61,48 @@ export default function UserList({ users, roles, keyword, status, roleCode }: { 
     setMessage('用户已创建');
     setShowForm(false);
     window.location.reload();
+  }
+
+  async function handleUpdate(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingUser) return;
+
+    const formData = new FormData(event.currentTarget);
+    const payload = {
+      displayName: String(formData.get('displayName') ?? '').trim(),
+      department: String(formData.get('department') ?? '').trim(),
+      roleCode: String(formData.get('roleCode') ?? '').trim(),
+      status: String(formData.get('status') ?? '').trim()
+    };
+
+    const res = await fetch(`/api/users/${editingUser.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setMessage(data.message ?? '更新失败');
+      return;
+    }
+
+    setMessage('用户已更新');
+    const updatedRoleName = getRoleName(payload.roleCode);
+    setList((current) =>
+      current.map((item) =>
+        item.id === editingUser.id
+          ? {
+              ...item,
+              displayName: payload.displayName,
+              department: payload.department,
+              status: payload.status,
+              roles: payload.roleCode ? [payload.roleCode] : [],
+              roleNames: payload.roleCode ? [updatedRoleName] : []
+            }
+          : item
+      )
+    );
+    setEditingUser(null);
   }
 
   async function toggleStatus(user: User) {
@@ -150,7 +182,7 @@ export default function UserList({ users, roles, keyword, status, roleCode }: { 
             <input className="input" name="username" placeholder="用户名" required />
             <input className="input" name="password" type="password" placeholder="密码" required />
             <input className="input" name="displayName" placeholder="显示名称" required />
-            <input className="input" name="department" placeholder="部门" />
+            <input className="input" name="department" placeholder="部门/分类" />
             <select className="select" name="roleCode" defaultValue="USER">
               {roles.map((role) => (
                 <option key={role.roleCode} value={role.roleCode}>{role.roleName}</option>
@@ -160,12 +192,39 @@ export default function UserList({ users, roles, keyword, status, roleCode }: { 
           </form>
         ) : null}
 
+        {editingUser ? (
+          <form className="card" style={{ padding: 16, marginBottom: 16 }} onSubmit={handleUpdate}>
+            <div className="header" style={{ marginBottom: 12 }}>
+              <h3 style={{ margin: 0 }}>编辑用户</h3>
+              <button className="button secondary" type="button" onClick={() => setEditingUser(null)}>
+                取消编辑
+              </button>
+            </div>
+            <div className="grid grid-4">
+              <input className="input" name="displayName" placeholder="显示名称" defaultValue={editingUser.displayName} required />
+              <input className="input" name="department" placeholder="部门/分类" defaultValue={editingUser.department} />
+              <select className="select" name="roleCode" defaultValue={editingUser.roleCode}>
+                {roles.map((role) => (
+                  <option key={role.roleCode} value={role.roleCode}>{role.roleName}</option>
+                ))}
+              </select>
+              <select className="select" name="status" defaultValue={editingUser.status}>
+                <option value="ACTIVE">启用</option>
+                <option value="DISABLED">禁用</option>
+              </select>
+            </div>
+            <div className="stack" style={{ marginTop: 12 }}>
+              <button className="button" type="submit">保存修改</button>
+            </div>
+          </form>
+        ) : null}
+
         <table className="table">
           <thead>
             <tr>
               <th>用户名</th>
               <th>显示名称</th>
-              <th>部门</th>
+              <th>部门/分类</th>
               <th>状态</th>
               <th>角色</th>
               <th>录入数</th>
@@ -189,6 +248,21 @@ export default function UserList({ users, roles, keyword, status, roleCode }: { 
                   <div className="stack">
                     <button
                       className="button secondary"
+                      type="button"
+                      onClick={() => setEditingUser({
+                        id: user.id,
+                        displayName: user.displayName,
+                        department: user.department,
+                        roleCode: user.roles[0] ?? 'USER',
+                        status: user.status
+                      })}
+                      disabled={user.username === 'admin'}
+                    >
+                      编辑
+                    </button>
+                    <button
+                      className="button secondary"
+                      type="button"
                       onClick={() => toggleStatus(user)}
                       disabled={user.username === 'admin'}
                     >
@@ -196,6 +270,7 @@ export default function UserList({ users, roles, keyword, status, roleCode }: { 
                     </button>
                     <button
                       className="button secondary"
+                      type="button"
                       onClick={() => setResetPassword({ id: user.id, password: 'NewPass123!' })}
                       disabled={user.username === 'admin'}
                     >
@@ -213,8 +288,8 @@ export default function UserList({ users, roles, keyword, status, roleCode }: { 
             <h3 style={{ marginTop: 0 }}>确认重置密码</h3>
             <p className="helper">将把密码重置为：{resetPassword.password}</p>
             <div className="stack">
-              <button className="button" onClick={handleResetPassword}>确认重置</button>
-              <button className="button secondary" onClick={() => setResetPassword(null)}>取消</button>
+              <button className="button" type="button" onClick={handleResetPassword}>确认重置</button>
+              <button className="button secondary" type="button" onClick={() => setResetPassword(null)}>取消</button>
             </div>
           </div>
         ) : null}
