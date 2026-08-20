@@ -1,0 +1,306 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum OriginType {
+  media
+  xhs
+  wb
+  wx
+  sph
+  dy
+  zh
+  tb
+  other
+}
+
+enum PublisherType {
+  MEDIA
+  SOCIAL
+}
+
+enum AuthorType {
+  BLUE_V
+  SELF_MEDIA
+  PERSONAL
+}
+
+enum MediaRuleStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum MediaRuleType {
+  DOMAIN
+  ACCOUNT
+}
+
+enum ImportType {
+  PASTE
+  EXCEL
+  MANUAL
+  API
+}
+
+enum BatchStatus {
+  CREATED
+  VALIDATING
+  PENDING_PUSH
+  PUSHING
+  PARTIAL_SUCCESS
+  SUCCESS
+  FAILED
+  CLOSED
+}
+
+enum RecordStatus {
+  DRAFT
+  VALIDATED
+  PENDING_PUSH
+  PUSHING
+  SUCCESS
+  FAILED
+  RETRYING
+  DUPLICATE
+}
+
+enum PushJobStatus {
+  PENDING
+  SENDING
+  SUCCESS
+  FAILED
+  RETRYING
+}
+
+model User {
+  id                  String           @id @default(cuid())
+  username            String           @unique
+  passwordHash        String
+  displayName         String
+  phone               String?
+  email               String?
+  department          String?
+  status              UserStatus       @default(ACTIVE)
+  accountType         String?          @default("social")
+  lastLoginAt         DateTime?
+  currentSessionId    String?          @unique
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  roles               UserRole[]
+  createdBatches      DataBatch[]      @relation("BatchCreatedBy")
+  createdDataRecords  DataRecord[]     @relation("RecordCreatedBy")
+  createdPushJobs     PushJob[]        @relation("PushJobCreatedBy")
+  auditLogs           AuditLog[]
+  uploadedImportFiles ImportFile[]     @relation("UploadedBy")
+  updatedConfigs      SystemConfig[]   @relation("UpdatedBy")
+  mediaLibraries      MediaLibrary[]
+}
+
+model Role {
+  id          String             @id @default(cuid())
+  roleCode    String             @unique
+  roleName    String
+  description String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  users       UserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String             @id @default(cuid())
+  permCode    String             @unique
+  permName    String
+  moduleName  String
+  createdAt   DateTime           @default(now())
+  roles       RolePermission[]
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  createdAt DateTime  @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+}
+
+model RolePermission {
+  id           String      @id @default(cuid())
+  roleId       String
+  permissionId String
+  createdAt    DateTime     @default(now())
+  role         Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission   @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+}
+
+model DataBatch {
+  id              String         @id @default(cuid())
+  batchNo         String         @unique
+  importType      ImportType
+  sourceFileName  String?
+  sourceSheetName String?
+  totalCount      Int            @default(0)
+  validCount      Int            @default(0)
+  invalidCount    Int            @default(0)
+  pushCount       Int            @default(0)
+  successCount    Int            @default(0)
+  failCount       Int            @default(0)
+  status          BatchStatus    @default(CREATED)
+  createdById     String
+  createdAt       DateTime       @default(now())
+  pushedAt        DateTime?
+  remark          String?
+  createdBy       User           @relation("BatchCreatedBy", fields: [createdById], references: [id])
+  records         DataRecord[]
+  pushJobs        PushJob[]
+  importFiles     ImportFile[]
+}
+
+model DataRecord {
+  id              String        @id @default(cuid())
+  batchId         String
+  textId          String        @unique
+  title           String        @db.Text
+  text            String        @db.LongText
+  publishTime     DateTime
+  author          String
+  originType      OriginType
+  publisherType   PublisherType @default(SOCIAL)
+  authorType      AuthorType?
+  url             String        @db.Text
+  commentNum      Int
+  forwardNum      Int?
+  praiseNum       Int?
+  viewNum         Int?
+  tendency        String?
+  rawSourceText   String?       @db.LongText
+  sourceRowNo     Int?
+  recordStatus    RecordStatus  @default(DRAFT)
+  isDuplicate     Boolean       @default(false)
+  createdById     String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  batch           DataBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  createdBy       User          @relation("RecordCreatedBy", fields: [createdById], references: [id])
+  pushItems       PushJobItem[]
+
+  @@index([createdById, recordStatus, createdAt])
+  @@index([recordStatus, createdAt])
+  @@index([createdAt])
+  @@index([originType, publisherType])
+  @@index([createdById, createdAt])
+}
+
+model PushJob {
+  id              String         @id @default(cuid())
+  batchId         String
+  jobNo           String         @unique
+  env             String
+  endpoint        String
+  version         String         @default("1")
+  requestBody     Json
+  responseBody    Json?
+  httpStatus      Int?
+  insertedCount   Int            @default(0)
+  failedCount     Int            @default(0)
+  retryCount      Int            @default(0)
+  nextRetryAt     DateTime?
+  status          PushJobStatus  @default(PENDING)
+  createdById     String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  batch           DataBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  createdBy       User           @relation("PushJobCreatedBy", fields: [createdById], references: [id])
+  items           PushJobItem[]
+}
+
+model PushJobItem {
+  id                   String   @id @default(cuid())
+  pushJobId            String
+  recordId             String
+  itemIndex            Int
+  status               String
+  errorMessage         String?
+  vendorResponseCode   String?
+  createdAt            DateTime @default(now())
+  pushJob              PushJob  @relation(fields: [pushJobId], references: [id], onDelete: Cascade)
+  record               DataRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@unique([pushJobId, itemIndex])
+}
+
+model ImportFile {
+  id            String    @id @default(cuid())
+  fileName      String
+  filePath      String
+  fileSize      BigInt
+  fileHash      String
+  uploadedById  String
+  uploadedAt    DateTime  @default(now())
+  parseStatus   String
+  batchId       String?
+  uploadedBy    User      @relation("UploadedBy", fields: [uploadedById], references: [id])
+  batch         DataBatch? @relation(fields: [batchId], references: [id])
+}
+
+model SystemConfig {
+  id           String   @id @default(cuid())
+  configKey    String   @unique
+  configValue  String
+  configType   String
+  remark       String?
+  updatedById  String?
+  updatedAt    DateTime @updatedAt
+  updatedBy    User?    @relation("UpdatedBy", fields: [updatedById], references: [id])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String
+  actionType   String
+  module       String
+  targetId     String?
+  actionDesc   String
+  requestData  Json?
+  resultData   Json?
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id])
+}
+
+model MediaLibrary {
+  id            String           @id @default(cuid())
+  name          String
+  domain        String?
+  platformName String?
+  originType    OriginType
+  publisherType PublisherType
+  authorType    AuthorType?
+  ruleType      MediaRuleType    @default(DOMAIN)
+  rulePattern   String?
+  priority      Int              @default(0)
+  status        MediaRuleStatus  @default(ACTIVE)
+  remark        String?
+  createdById   String
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  createdBy    User             @relation(fields: [createdById], references: [id])
+
+  @@unique([domain, ruleType])
+  @@index([originType, publisherType])
+  @@index([status, priority])
+}
