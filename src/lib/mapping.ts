@@ -6,9 +6,10 @@ const originTypeMap: Record<string, OriginType> = {
   微博: 'wb',
   新浪微博: 'wb',
   微博热搜: 'wb',
+  视频号: 'sph',
+  微信视频号: 'sph',
   微信: 'wx',
   公众号: 'wx',
-  视频号: 'sph',
   小红书: 'xhs',
   抖音: 'dy',
   知乎: 'zh',
@@ -23,7 +24,8 @@ const originTypeMap: Record<string, OriginType> = {
 };
 
 // 来源字段常带后缀或变体（如"手机新浪网""百度贴吧-孙笑川吧""腾讯网"），
-// 精确匹配不到时按关键词包含匹配兜底。顺序从具体到一般，社交平台优先于媒体。
+// 精确匹配不到时按关键词包含匹配兜底。顺序从具体到一般，社交平台优先于媒体，
+// 「视频号」必须放在「微信/公众号/weixin」之前匹配，否则包含「微信视频号」时优先算视频号 sph。
 const originTypeKeywords: Array<{ keywords: string[]; originType: OriginType }> = [
   { keywords: ['微博', 'weibo'], originType: 'wb' },
   { keywords: ['小红书', 'xhslink', 'xiaohongshu'], originType: 'xhs' },
@@ -49,8 +51,12 @@ const originTypeKeywords: Array<{ keywords: string[]; originType: OriginType }> 
 
 const originDomainMap: Array<{ domains: string[]; originType: OriginType }> = [
   { domains: ['weibo.com', 'm.weibo.cn', 'weibo.cn', 't.cn'], originType: 'wb' },
-  { domains: ['mp.weixin.qq.com', 'weixin.qq.com'], originType: 'wx' },
   { domains: ['channels.weixin.qq.com'], originType: 'sph' },
+  { domains: ['mp.weixin.qq.com'], originType: 'wx' },
+  {
+    domains: ['weixin.qq.com'],
+    originType: 'wx'
+  },
   { domains: ['xiaohongshu.com', 'xhslink.cn'], originType: 'xhs' },
   { domains: ['douyin.com', 'iesdouyin.com', 'v.douyin.com'], originType: 'dy' },
   { domains: ['zhihu.com'], originType: 'zh' },
@@ -71,24 +77,42 @@ const originDomainMap: Array<{ domains: string[]; originType: OriginType }> = [
   }
 ];
 
+function normalizeUrlForOriginType(value?: string): string {
+  const raw = value?.trim() ?? '';
+  if (!raw) return '';
+  // 视频号/微信分享经常带反引号、前后缀或缺失协议，先清洗再判定域名。
+  const cleaned = raw.replace(/^[`'"]+|[`'"]+$/g, '').trim();
+  if (!cleaned) return '';
+  if (/^https?:\/\//i.test(cleaned)) return cleaned;
+  return `https://${cleaned.replace(/^\/+/, '')}`;
+}
+
 export function normalizeOriginType(source?: string, url?: string): OriginType {
-  const domain = getDomainFromUrl(url);
+  // 1) 先判定域名（正常情况下最高优先级）
+  const domain = getDomainFromUrl(normalizeUrlForOriginType(url));
+  let matchedByDomain: OriginType | undefined;
   if (domain) {
     const matched = originDomainMap.find((item) =>
       item.domains.some((name) => domain === name || domain.endsWith(`.${name}`))
     );
-    if (matched) return matched.originType;
-  }
-  if (!source) return 'other';
-
-  const trimmed = source.trim();
-  const exact = originTypeMap[trimmed];
-  if (exact) return exact;
-
-  for (const { keywords, originType } of originTypeKeywords) {
-    if (keywords.some((keyword) => trimmed.includes(keyword))) return originType;
+    if (matched) matchedByDomain = matched.originType;
   }
 
+  // 2) 再看来源字段是否明确声明了具体平台；如果有且比域名更具体，以来源声明为准。
+  //    典型场景：导入的来源列手写「微信视频号」，但链接是通用 weixin.qq.com 非 channels 域名，
+  //    此时应当强制按来源列判为 sph，而不是通用 wx。
+  if (source) {
+    const trimmed = source.trim();
+    const exact = originTypeMap[trimmed];
+    if (exact) return exact;
+
+    for (const { keywords, originType } of originTypeKeywords) {
+      if (keywords.some((keyword) => trimmed.includes(keyword))) return originType;
+    }
+  }
+
+  // 3) 来源无有效信息时，再回退域名判定或兜底 other
+  if (matchedByDomain) return matchedByDomain;
   return 'other';
 }
 
