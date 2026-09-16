@@ -1,0 +1,30 @@
+-- CreateTable
+CREATE TABLE `EventRecord` (
+    `id` VARCHAR(191) NOT NULL,
+    `category` VARCHAR(191) NOT NULL,
+    `sourceFileName` VARCHAR(191) NOT NULL,
+    `seqNo` INTEGER NOT NULL,
+    `source` VARCHAR(191) NULL,
+    `author` VARCHAR(191) NULL,
+    `fansCount` INTEGER NOT NULL DEFAULT 0,
+    `authType` VARCHAR(191) NULL,
+    `publishTime` DATETIME(3) NULL,
+    `title` TEXT NULL,
+    `link` TEXT NULL,
+    `summary` TEXT NULL,
+    `viewCount` INTEGER NOT NULL DEFAULT 0,
+    `forwardCount` INTEGER NOT NULL DEFAULT 0,
+    `replyCount` INTEGER NOT NULL DEFAULT 0,
+    `praiseCount` INTEGER NOT NULL DEFAULT 0,
+    `tendency` VARCHAR(191) NULL,
+    `rawData` JSON NULL,
+    `rowNo` INTEGER NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `EventRecord_category_createdAt_idx`(`category`, `createdAt`),
+    INDEX `EventRecord_source_idx`(`source`),
+    INDEX `EventRecord_author_idx`(`author`),
+    INDEX `EventRecord_publishTime_idx`(`publishTime`),
+    INDEX `EventRecord_createdAt_idx`(`createdAt`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

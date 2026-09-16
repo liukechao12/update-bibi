@@ -2,6 +2,24 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireApiUser } from '@/lib/api-auth';
 
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireApiUser();
+  if ('error' in auth) return auth.error;
+
+  const { id } = await params;
+
+  const record = await prisma.dataRecord.findUnique({
+    where: { id },
+    select: { id: true, text: true, rawSourceText: true }
+  });
+
+  if (!record) {
+    return NextResponse.json({ code: 40400, message: '记录不存在' }, { status: 404 });
+  }
+
+  return NextResponse.json({ record });
+}
+
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireApiUser();
   if ('error' in auth) return auth.error;

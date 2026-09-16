@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { requireUser } from '@/lib/guards';
 import { formatBeijingTime } from '@/lib/time';
-import { labelOrValue, originTypeLabelMap, recordStatusLabelMap } from '@/lib/labels';
+import { labelOrValue, originTypeLabelMap, publisherTypeLabelMap, authorTypeLabelMap, recordStatusLabelMap } from '@/lib/labels';
 
 export default async function RecordDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
@@ -89,6 +89,8 @@ export default async function RecordDetailPage({ params }: { params: Promise<{ i
               <tr><th>标题</th><td>{record.title}</td></tr>
               <tr><th>作者</th><td>{record.author}</td></tr>
               <tr><th>来源</th><td>{labelOrValue(originTypeLabelMap, record.originType)}</td></tr>
+              <tr><th>媒体属性</th><td>{labelOrValue(publisherTypeLabelMap, record.publisherType)}</td></tr>
+              <tr><th>作者分类</th><td>{labelOrValue(authorTypeLabelMap, record.authorType)}</td></tr>
               <tr><th>链接</th><td><a href={record.url} target="_blank" rel="noreferrer">{record.url}</a></td></tr>
               <tr><th>发布时间</th><td>{formatBeijingTime(record.publishTime)}</td></tr>
               <tr><th>评论数</th><td>{record.commentNum}</td></tr>

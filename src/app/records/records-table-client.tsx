@@ -9,7 +9,6 @@ type RecordItem = {
   id: string;
   textId: string;
   title: string;
-  text: string;
   author: string;
   originType: string;
   url: string;
@@ -22,12 +21,13 @@ type RecordItem = {
   recordStatus: string;
   submitterName?: string | null;
   isDuplicate: boolean;
-  rawSourceText: string | null;
   batchId: string | null;
   batchNo: string | null;
   createdByName: string | null;
   createdAt: string;
 };
+
+type RowDetail = { text: string | null; rawSourceText: string | null };
 
 function statusTone(status: string) {
   switch (status) {
@@ -46,18 +46,20 @@ function statusTone(status: string) {
   }
 }
 
-function resolveRaw(record: RecordItem) {
-  if (!record.rawSourceText) return null;
+function resolveRaw(rawSourceText: string | null) {
+  if (!rawSourceText) return null;
   try {
-    return JSON.stringify(JSON.parse(record.rawSourceText), null, 2);
+    return JSON.stringify(JSON.parse(rawSourceText), null, 2);
   } catch {
-    return record.rawSourceText;
+    return rawSourceText;
   }
 }
 
 export default function RecordsTableClient({ records }: { records: RecordItem[] }) {
   const router = useRouter();
   const [openRows, setOpenRows] = useState<string[]>([]);
+  const [rowDetails, setRowDetails] = useState<Record<string, RowDetail>>({});
+  const [detailLoading, setDetailLoading] = useState<Record<string, boolean>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [pushing, setPushing] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -83,10 +85,33 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
 
   const allSelected = allSelectableIds.length > 0 && allSelectableIds.every((id) => selectedIds.includes(id));
 
+  async function loadDetail(id: string) {
+    if (rowDetails[id] || detailLoading[id]) return;
+    setDetailLoading((current) => ({ ...current, [id]: true }));
+    try {
+      const response = await fetch(`/api/records/${id}`);
+      const payload = await response.json();
+      if (response.ok && payload.record) {
+        setRowDetails((current) => ({
+          ...current,
+          [id]: { text: payload.record.text ?? null, rawSourceText: payload.record.rawSourceText ?? null }
+        }));
+      } else {
+        setRowDetails((current) => ({ ...current, [id]: { text: null, rawSourceText: null } }));
+      }
+    } catch {
+      setRowDetails((current) => ({ ...current, [id]: { text: null, rawSourceText: null } }));
+    } finally {
+      setDetailLoading((current) => ({ ...current, [id]: false }));
+    }
+  }
+
   function toggleRow(id: string) {
+    const willOpen = !openRows.includes(id);
     setOpenRows((current) =>
-      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+      willOpen ? [...current, id] : current.filter((item) => item !== id)
     );
+    if (willOpen) loadDetail(id);
   }
 
   function toggleSelect(id: string) {
@@ -303,7 +328,8 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
               const canPush = record.recordStatus === 'PENDING_PUSH' || record.recordStatus === 'VALIDATED' || record.recordStatus === 'FAILED';
               const canDelete = record.recordStatus === 'PENDING_PUSH';
               const tone = statusTone(record.recordStatus);
-              const raw = resolveRaw(record);
+              const detail = rowDetails[record.id];
+              const raw = resolveRaw(detail?.rawSourceText ?? null);
               const failed = record.recordStatus === 'FAILED';
 
               return (
@@ -402,7 +428,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
                           <div>
                             <h3 style={{ margin: '0 0 8px' }}>正文内容</h3>
                             <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: 16, maxHeight: 360, overflow: 'auto' }}>
-                              {record.text}
+                              {detailLoading[record.id] ? '加载中...' : (detail?.text ?? '暂无内容')}
                             </div>
                             {raw ? (
                               <>

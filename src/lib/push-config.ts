@@ -8,7 +8,15 @@ export const CONFIG_KEYS = {
   PUSH_BACKOFF_INITIAL_MS: 'PUSH_BACKOFF_INITIAL_MS',
   PUSH_BACKOFF_MAX_MS: 'PUSH_BACKOFF_MAX_MS',
   PUSH_BATCH_SIZE: 'PUSH_BATCH_SIZE',
-  PUSH_TIMEOUT_MS: 'PUSH_TIMEOUT_MS'
+  PUSH_TIMEOUT_MS: 'PUSH_TIMEOUT_MS',
+  PUSH_API_VERSION: 'PUSH_API_VERSION',
+  TENCENT_DOC_DOWNLOAD_URL: 'TENCENT_DOC_DOWNLOAD_URL',
+  TENCENT_DOC_SYNC_ENABLED: 'TENCENT_DOC_SYNC_ENABLED',
+  TENCENT_DOC_SYNC_TIME: 'TENCENT_DOC_SYNC_TIME',
+  TENCENT_DOC_SYNC_SECRET: 'TENCENT_DOC_SYNC_SECRET',
+  TENCENT_DOC_SHEET_ID: 'TENCENT_DOC_SHEET_ID',
+  TENCENT_DOC_RANGE: 'TENCENT_DOC_RANGE',
+  TENCENT_DOC_SHEET_IDS: 'TENCENT_DOC_SHEET_IDS'
 } as const;
 
 export const CONFIG_DEFAULTS: Record<string, string> = {
@@ -18,7 +26,15 @@ export const CONFIG_DEFAULTS: Record<string, string> = {
   PUSH_BACKOFF_INITIAL_MS: '5000',
   PUSH_BACKOFF_MAX_MS: '300000',
   PUSH_BATCH_SIZE: '100',
-  PUSH_TIMEOUT_MS: '300000'
+  PUSH_TIMEOUT_MS: '300000',
+  PUSH_API_VERSION: '3',
+  TENCENT_DOC_DOWNLOAD_URL: '',
+  TENCENT_DOC_SYNC_ENABLED: 'false',
+  TENCENT_DOC_SYNC_TIME: '09:00',
+  TENCENT_DOC_SYNC_SECRET: '',
+  TENCENT_DOC_SHEET_ID: 'BB08J2',
+  TENCENT_DOC_RANGE: 'A1:Z200',
+  TENCENT_DOC_SHEET_IDS: 'BB08J2,l266vy,00d86f'
 };
 
 const cache = new Map<string, { value: string; ts: number }>();
@@ -65,14 +81,15 @@ export async function getVendorApiToken(): Promise<string> {
 }
 
 export async function getPushConfig() {
-  const [url, token, maxRetries, backoffInitial, backoffMax, batchSize, timeoutMs] = await Promise.all([
+  const [url, token, maxRetries, backoffInitial, backoffMax, batchSize, timeoutMs, apiVersion] = await Promise.all([
     getConfig(CONFIG_KEYS.VENDOR_API_URL),
     getConfig(CONFIG_KEYS.VENDOR_API_TOKEN),
     getConfig(CONFIG_KEYS.PUSH_MAX_RETRIES),
     getConfig(CONFIG_KEYS.PUSH_BACKOFF_INITIAL_MS),
     getConfig(CONFIG_KEYS.PUSH_BACKOFF_MAX_MS),
     getConfig(CONFIG_KEYS.PUSH_BATCH_SIZE),
-    getConfig(CONFIG_KEYS.PUSH_TIMEOUT_MS)
+    getConfig(CONFIG_KEYS.PUSH_TIMEOUT_MS),
+    getConfig(CONFIG_KEYS.PUSH_API_VERSION)
   ]);
 
   return {
@@ -82,6 +99,7 @@ export async function getPushConfig() {
     backoffInitialMs: Math.max(1000, Number(backoffInitial) || 5000),
     backoffMaxMs: Math.max(10000, Number(backoffMax) || 300000),
     batchSize: Math.max(1, Number(batchSize) || 100),
-    timeoutMs: Math.max(10000, Number(timeoutMs) || 300000)
+    timeoutMs: Math.max(10000, Number(timeoutMs) || 300000),
+    apiVersion: apiVersion.trim() || '3'
   };
 }

@@ -7,7 +7,7 @@ export async function POST(request: Request) {
   if ('error' in auth) return auth.error;
 
   const body = await request.json().catch(() => ({}));
-  const { url, token, maxRetries, backoffInitialMs, backoffMaxMs, batchSize, timeoutMs } = body as Record<string, unknown>;
+  const { url, token, maxRetries, backoffInitialMs, backoffMaxMs, batchSize, timeoutMs, apiVersion } = body as Record<string, unknown>;
 
   try {
     const updates: Array<[string, string]> = [];
@@ -18,6 +18,7 @@ export async function POST(request: Request) {
     if (typeof backoffMaxMs === 'string' || typeof backoffMaxMs === 'number') updates.push(['PUSH_BACKOFF_MAX_MS', String(backoffMaxMs)]);
     if (typeof batchSize === 'string' || typeof batchSize === 'number') updates.push(['PUSH_BATCH_SIZE', String(batchSize)]);
     if (typeof timeoutMs === 'string' || typeof timeoutMs === 'number') updates.push(['PUSH_TIMEOUT_MS', String(timeoutMs)]);
+    if (typeof apiVersion === 'string' && apiVersion.trim()) updates.push(['PUSH_API_VERSION', apiVersion.trim()]);
 
     for (const [key, value] of updates) {
       await setConfig(key, value);

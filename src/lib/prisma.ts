@@ -2,19 +2,17 @@ import 'dotenv/config';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { PrismaClient } from '@prisma/client';
 import { env } from '@/lib/env';
+import { parseMysqlDatabaseUrl } from '@/lib/db-config';
 
 declare global {
   // eslint-disable-next-line no-var
   var prisma: PrismaClient | undefined;
 }
 
+const config = parseMysqlDatabaseUrl(env.DATABASE_URL);
 const adapter = new PrismaMariaDb({
-  host: '36.111.148.138',
-  port: 3306,
-  user: 'jiebao',
-  password: 'Js8YPk6csKb2wdKG',
-  database: 'jiebao',
-  connectionLimit: 5,
+  ...config,
+  connectionLimit: 20,
   connectTimeout: 5_000
 });
 

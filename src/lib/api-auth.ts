@@ -1,7 +1,30 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/session';
+import { prisma } from '@/lib/prisma';
+import { hashApiKey } from '@/lib/external-api';
 
-export async function requireApiUser() {
+export async function requireApiUser(request?: Request) {
+  const bearer = request?.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim();
+  if (bearer) {
+    const client = await prisma.externalApiClient.findUnique({ where: { apiKeyHash: hashApiKey(bearer) } });
+    if (client?.clientCode.startsWith('plugin_') && client.status === 'ACTIVE' && (!client.expiresAt || client.expiresAt.getTime() >= Date.now())) {
+      const user = await prisma.user.findUnique({
+        where: { id: client.createdById },
+        include: { roles: { include: { role: true } } }
+      });
+      if (user) return {
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: user.displayName,
+          department: user.department,
+          accountType: user.accountType,
+          roles: user.roles.map((item) => item.role.roleCode),
+          sessionId: user.currentSessionId
+        }
+      };
+    }
+  }
   const user = await getCurrentUser();
   if (!user) {
     return { error: NextResponse.json({ code: 40100, message: '未登录' }, { status: 401 }) };

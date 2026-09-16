@@ -1,0 +1,66 @@
+{
+  "info": {
+    "name": "开放事件查询 API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://36.111.148.138:4000" },
+    { "key": "apiKey", "value": "ea_xxxxxxxxxxxxx" },
+    { "key": "category", "value": "华为竹知了事件" },
+    { "key": "recordId", "value": "clxxxxx" },
+    { "key": "updatedSince", "value": "2026-08-01T00:00:00.000Z" },
+    { "key": "cursor", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "健康检查",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{apiKey}}" }
+        ],
+        "url": "{{baseUrl}}/api/open/v1/health"
+      }
+    },
+    {
+      "name": "获取授权事件",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{apiKey}}" }
+        ],
+        "url": "{{baseUrl}}/api/open/v1/events"
+      }
+    },
+    {
+      "name": "分页查询事件记录",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{apiKey}}" }
+        ],
+        "url": "{{baseUrl}}/api/open/v1/event-records?category={{category}}&page=1&pageSize=20"
+      }
+    },
+    {
+      "name": "增量同步事件记录",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{apiKey}}" }
+        ],
+        "url": "{{baseUrl}}/api/open/v1/event-records?category={{category}}&updatedSince={{updatedSince}}&pageSize=20&cursor={{cursor}}"
+      }
+    },
+    {
+      "name": "查询单条详情",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{apiKey}}" }
+        ],
+        "url": "{{baseUrl}}/api/open/v1/event-records/{{recordId}}"
+      }
+    }
+  ]
+}

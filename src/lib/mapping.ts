@@ -1,5 +1,6 @@
 import crypto from 'crypto';
-import { OriginType, ParsedRawRecord, PushRecord, PublisherType, AuthorType } from '@/lib/types';
+import { OriginType, ParsedRawRecord, PushRecord, PublisherType, AuthorType } from './types';
+import { classifyAuthorType, classifyPublisherType, getDomainFromUrl } from './media-classification';
 
 const originTypeMap: Record<string, OriginType> = {
   微博: 'wb',
@@ -11,6 +12,7 @@ const originTypeMap: Record<string, OriginType> = {
   小红书: 'xhs',
   抖音: 'dy',
   知乎: 'zh',
+  知乎回答: 'zh',
   贴吧: 'tb',
   网站: 'media',
   新闻: 'media',
@@ -20,47 +22,89 @@ const originTypeMap: Record<string, OriginType> = {
   自媒体: 'other'
 };
 
-const publisherTypeMap: Record<string, PublisherType> = {
-  媒体: 'MEDIA',
-  官方: 'MEDIA',
-  认证: 'MEDIA',
-  新闻: 'MEDIA',
-  微博: 'SOCIAL',
-  微信: 'SOCIAL',
-  小红书: 'SOCIAL',
-  抖音: 'SOCIAL',
-  知乎: 'SOCIAL',
-  贴吧: 'SOCIAL',
-  个人: 'SOCIAL',
-  自媒体: 'SOCIAL'
-};
+// 来源字段常带后缀或变体（如"手机新浪网""百度贴吧-孙笑川吧""腾讯网"），
+// 精确匹配不到时按关键词包含匹配兜底。顺序从具体到一般，社交平台优先于媒体。
+const originTypeKeywords: Array<{ keywords: string[]; originType: OriginType }> = [
+  { keywords: ['微博', 'weibo'], originType: 'wb' },
+  { keywords: ['小红书', 'xhslink', 'xiaohongshu'], originType: 'xhs' },
+  { keywords: ['抖音', 'douyin'], originType: 'dy' },
+  { keywords: ['知乎', 'zhihu'], originType: 'zh' },
+  { keywords: ['贴吧', 'tieba'], originType: 'tb' },
+  { keywords: ['视频号'], originType: 'sph' },
+  { keywords: ['微信', '公众号', 'weixin'], originType: 'wx' },
+  {
+    keywords: [
+      '新闻', '日报', '晚报', '时报', '快报', '周刊', '资讯', '财经', '经济', '观察',
+      '法治', '法制', '新浪', '搜狐', '网易', '腾讯', '百度', '凤凰', '一点资讯', 'UC',
+      '雪球', '格隆汇', '钛媒体', '每经', '财联社', '企查查', '界面', '澎湃', '虎嗅',
+      '36氪', '东方财富', '证券', '金融界', '同花顺', '第一财经', '红星', '封面', '上游',
+      '新黄河', '九派', '大皖', '红网', '齐鲁', '大众', '海报', '湖北', '南方', '北京',
+      '新京报', '光明', '新华', '央视', '央广', '环球', '参考消息', '中国新闻', '国际在线',
+      '中国网', '中国日报', '中国青年', '中国军网', '工人日报', '中国新闻社', '法治网',
+      '中央广电总台', '新闻联播', '荣耀俱乐部'
+    ],
+    originType: 'media'
+  }
+];
 
-const authorTypeMap: Record<string, AuthorType> = {
-  蓝V: 'BLUE_V',
-  蓝v: 'BLUE_V',
-  认证媒体: 'BLUE_V',
-  自媒体: 'SELF_MEDIA',
-  媒体号: 'SELF_MEDIA',
-  个人: 'PERSONAL',
-  普通用户: 'PERSONAL'
-};
+const originDomainMap: Array<{ domains: string[]; originType: OriginType }> = [
+  { domains: ['weibo.com', 'm.weibo.cn', 'weibo.cn', 't.cn'], originType: 'wb' },
+  { domains: ['mp.weixin.qq.com', 'weixin.qq.com'], originType: 'wx' },
+  { domains: ['channels.weixin.qq.com'], originType: 'sph' },
+  { domains: ['xiaohongshu.com', 'xhslink.cn'], originType: 'xhs' },
+  { domains: ['douyin.com', 'iesdouyin.com', 'v.douyin.com'], originType: 'dy' },
+  { domains: ['zhihu.com'], originType: 'zh' },
+  { domains: ['tieba.baidu.com'], originType: 'tb' },
+  {
+    domains: [
+      'sina.com.cn', 'sina.cn', 'news.sina.cn', 'finance.sina.cn',
+      'qq.com', 'new.qq.com', 'news.qq.com',
+      'sohu.com', '163.com', 'ifeng.com', 'ishare.ifeng.com',
+      'thepaper.cn', 'jiemian.com', 'yicai.com', 'ce.cn',
+      'people.com.cn', 'xinhuanet.com', 'gmw.cn', 'chinadaily.com.cn',
+      'cctv.com', 'cnr.cn', 'china.com.cn',
+      'eastmoney.com', '10jqka.com.cn', 'cnstock.com', 'stockstar.com',
+      'cls.cn', 'gelonghui.com', 'xueqiu.com', 'huxiu.com',
+      '36kr.com', 'ithome.com', 'mydrivers.com', 'gamersky.com'
+    ],
+    originType: 'media'
+  }
+];
 
-export function normalizeOriginType(source?: string): OriginType {
+export function normalizeOriginType(source?: string, url?: string): OriginType {
+  const domain = getDomainFromUrl(url);
+  if (domain) {
+    const matched = originDomainMap.find((item) =>
+      item.domains.some((name) => domain === name || domain.endsWith(`.${name}`))
+    );
+    if (matched) return matched.originType;
+  }
   if (!source) return 'other';
-  return originTypeMap[source.trim()] ?? 'other';
+
+  const trimmed = source.trim();
+  const exact = originTypeMap[trimmed];
+  if (exact) return exact;
+
+  for (const { keywords, originType } of originTypeKeywords) {
+    if (keywords.some((keyword) => trimmed.includes(keyword))) return originType;
+  }
+
+  return 'other';
 }
 
-export function normalizePublisherType(source?: string, originType?: OriginType): PublisherType {
-  if (originType === 'media') return 'MEDIA';
-  if (!source) return 'SOCIAL';
-  return publisherTypeMap[source.trim()] ?? 'SOCIAL';
+export function normalizePublisherType(source?: string, originType?: OriginType, author?: string, url?: string): PublisherType {
+  return classifyPublisherType({ source, originType, author, url });
 }
 
-export function normalizeAuthorType(source?: string, publisherType?: PublisherType, originType?: OriginType): AuthorType {
-  if (originType === 'xhs') return 'PERSONAL';
-  if (publisherType === 'MEDIA') return 'BLUE_V';
-  if (!source) return null;
-  return authorTypeMap[source.trim()] ?? 'PERSONAL';
+export function normalizeAuthorType(options: {
+  certType?: string;
+  publisherType?: PublisherType;
+  source?: string;
+  author?: string;
+  url?: string;
+  originType?: OriginType;
+}): AuthorType {
+  return classifyAuthorType(options);
 }
 
 export function normalizePublishTime(value?: string): string {
@@ -95,12 +139,35 @@ export function normalizePublishTime(value?: string): string {
 }
 
 export function normalizePublishTimeToDate(value?: string): Date {
-  const normalized = normalizePublishTime(value).replace(' ', 'T');
-  const date = new Date(normalized);
+  const normalized = normalizePublishTime(value);
+  const localMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  const date = localMatch
+    ? new Date(Number(localMatch[1]), Number(localMatch[2]) - 1, Number(localMatch[3]), Number(localMatch[4]), Number(localMatch[5]), Number(localMatch[6] ?? 0))
+    : new Date(normalized.replace(' ', 'T'));
   if (Number.isNaN(date.getTime())) {
     return new Date();
   }
   return date;
+}
+
+export function isPublishTimeInFuture(value?: string, now = new Date()) {
+  const publishTime = normalizePublishTimeToDate(value);
+  return publishTime.getTime() > now.getTime();
+}
+
+export function normalizeContentUrl(value?: string) {
+  const raw = value?.trim() ?? '';
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    url.hash = '';
+    url.search = '';
+    url.hostname = url.hostname.toLowerCase().replace(/^www\./, '');
+    url.pathname = url.pathname.replace(/\/$/, '') || '/';
+    return url.toString();
+  } catch {
+    return raw.replace(/[?#].*$/, '').replace(/\/$/, '').trim();
+  }
 }
 
 export function buildTextId(input: {
@@ -109,38 +176,46 @@ export function buildTextId(input: {
   title?: string;
   time?: string;
 }): string {
-  const normalized = {
+  const normalizedLink = normalizeContentUrl(input.link);
+  const identity = normalizedLink || JSON.stringify({
     source: input.source ?? 'unknown',
-    link: input.link ?? '',
     title: input.title ?? '',
     time: input.time ?? ''
-  };
+  });
   const hash = crypto
     .createHash('sha1')
-    .update(JSON.stringify(normalized))
+    .update(identity)
     .digest('hex')
     .slice(0, 24);
-  return `${normalizeOriginType(input.source).toUpperCase()}_${hash}`;
+  return `${normalizeOriginType(input.source, input.link).toUpperCase()}_${hash}`;
 }
 
 export function mapRawRecordToPushRecord(raw: ParsedRawRecord): PushRecord {
   const title = raw.title?.trim() || '未命名标题';
   const text = raw.summary?.trim() || title;
-  const originType = normalizeOriginType(raw.source);
-  const publisherType = normalizePublisherType(raw.source, originType);
-  const authorType = normalizeAuthorType(raw.source, publisherType, originType);
+  const originType = normalizeOriginType(raw.source, raw.link);
+  const publisherType = normalizePublisherType(raw.source, originType, raw.author, raw.link);
+  const authorType = normalizeAuthorType({
+    certType: raw.certType,
+    publisherType,
+    source: raw.source,
+    author: raw.author,
+    url: raw.link,
+    originType
+  });
 
   return {
     textId: buildTextId({ source: raw.source, link: raw.link, title, time: raw.time }),
     title,
     text,
     publishTime: normalizePublishTime(raw.time),
+    crawlTime: new Date().toISOString(),
     author: raw.author?.trim() || '未知作者',
     originType,
     publisherType,
     authorType,
-    url: raw.link?.trim() || '',
-    commentNum: Number(raw.commentNum ?? 0),
+    url: normalizeContentUrl(raw.link),
+    commentNum: raw.commentNum ?? 0,
     forwardNum: raw.forwardNum ?? null,
     praiseNum: raw.praiseNum ?? null,
     viewNum: raw.viewNum ?? null

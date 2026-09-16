@@ -20,6 +20,8 @@ export async function getCurrentUser() {
       id: user.id,
       username: user.username,
       displayName: user.displayName,
+      department: user.department,
+      accountType: user.accountType,
       roles: user.roles.map((item) => item.role.roleCode),
       sessionId: payload.sessionId
     };

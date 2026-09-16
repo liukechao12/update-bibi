@@ -1,0 +1,20 @@
+CREATE TABLE `DocumentSyncLog` (
+  `id` VARCHAR(191) NOT NULL,
+  `triggerType` VARCHAR(191) NOT NULL,
+  `sourceUrl` TEXT NOT NULL,
+  `status` VARCHAR(191) NOT NULL,
+  `totalRows` INTEGER NOT NULL DEFAULT 0,
+  `createdCount` INTEGER NOT NULL DEFAULT 0,
+  `updatedCount` INTEGER NOT NULL DEFAULT 0,
+  `skippedCount` INTEGER NOT NULL DEFAULT 0,
+  `invalidCount` INTEGER NOT NULL DEFAULT 0,
+  `pushedCount` INTEGER NOT NULL DEFAULT 0,
+  `failedCount` INTEGER NOT NULL DEFAULT 0,
+  `details` JSON NULL,
+  `errorMessage` TEXT NULL,
+  `startedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `finishedAt` DATETIME(3) NULL,
+  PRIMARY KEY (`id`),
+  INDEX `DocumentSyncLog_startedAt_idx` (`startedAt`),
+  INDEX `DocumentSyncLog_status_startedAt_idx` (`status`, `startedAt`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

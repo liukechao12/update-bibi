@@ -52,6 +52,41 @@ export const originTypeLabelMap: Record<string, string> = {
   other: '其他'
 };
 
+export const publisherTypeLabelMap: Record<string, string> = {
+  MEDIA: '媒体',
+  SOCIAL: '社交媒体'
+};
+
+export const authorTypeLabelMap: Record<string, string> = {
+  BLUE_V: '认证媒体',
+  SELF_MEDIA: '社交媒体',
+  PERSONAL: '个人'
+};
+
+export const mediaRuleTypeLabelMap: Record<string, string> = {
+  DOMAIN: '域名',
+  ACCOUNT: '账号'
+};
+
+export const mediaRuleStatusLabelMap: Record<string, string> = {
+  ACTIVE: '启用',
+  DISABLED: '禁用'
+};
+
+export const eventCategoryLabelMap: Record<string, string> = {
+  '华为竹知了事件': '华为竹知了事件',
+  '叠纸敖尹上线事件': '叠纸敖尹上线事件',
+  '小红书上市投诉事件': '小红书上市投诉事件',
+  '雷军过早事件': '雷军过早事件'
+};
+
+export const eventCategoryList = [
+  { value: '华为竹知了事件', label: '华为竹知了事件' },
+  { value: '叠纸敖尹上线事件', label: '叠纸敖尹上线事件' },
+  { value: '小红书上市投诉事件', label: '小红书上市投诉事件' },
+  { value: '雷军过早事件', label: '雷军过早事件' }
+];
+
 export function labelOrValue(map: Record<string, string>, value: string | null | undefined) {
   if (!value) return '-';
   return map[value] ?? value;

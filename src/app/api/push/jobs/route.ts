@@ -1,13 +1,23 @@
 import { NextResponse } from 'next/server';
 import { pushRequestSchema } from '@/lib/schemas';
-import { pushBatch } from '@/lib/push';
+import { buildVendorPushPayload, pushBatch } from '@/lib/push';
 import { prisma } from '@/lib/prisma';
 import { chunkRecords } from '@/lib/mapping';
 import { Prisma } from '@prisma/client';
 import { requireApiUser } from '@/lib/api-auth';
 import { pushExistingRecords } from '@/lib/push-workflow';
+import { generateBatchNo, generateJobNo } from '@/lib/business-no';
 
 type PushError = { index: number; error: string; code?: string | number | null };
+
+const MAX_ERROR_MESSAGE_LENGTH = 60000;
+
+function normalizeErrorMessage(value: unknown) {
+  const message = value instanceof Error ? value.message : String(value ?? '推送失败');
+  return message.length > MAX_ERROR_MESSAGE_LENGTH
+    ? `${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}\n[错误详情已截断]`
+    : message;
+}
 
 export async function POST(request: Request) {
   const auth = await requireApiUser();
@@ -43,7 +53,7 @@ export async function POST(request: Request) {
   const results: Array<{ jobNo: string; inserted: number; failed: number; errors: PushError[] }> = [];
   const dataBatch = await prisma.dataBatch.create({
     data: {
-      batchNo: `BATCH-${Date.now()}`,
+      batchNo: generateBatchNo(),
       importType: 'PASTE',
       totalCount: parsed.data.records.length,
       validCount: parsed.data.records.length,
@@ -88,10 +98,10 @@ export async function POST(request: Request) {
     const pushJob = await prisma.pushJob.create({
       data: {
         batchId: dataBatch.id,
-        jobNo: `JOB-${Date.now()}-${index + 1}`,
+        jobNo: `${generateJobNo()}-${index + 1}`,
         env: 'UAT',
         endpoint: process.env.VENDOR_API_BASE_URL ?? '',
-        requestBody: { version: '1', records: group },
+        requestBody: await buildVendorPushPayload(group),
         status: 'SENDING',
         createdById: currentUser.id
       }
@@ -132,7 +142,7 @@ export async function POST(request: Request) {
           where: { id: item.id },
           data: {
             status: error ? 'FAILED' : 'SUCCESS',
-            errorMessage: error?.error ?? null,
+            errorMessage: error ? normalizeErrorMessage(error.error) : null,
             vendorResponseCode: error?.code != null ? String(error.code) : null
           }
         });
@@ -165,7 +175,7 @@ export async function POST(request: Request) {
           where: { id: item.id },
           data: {
             status: 'FAILED',
-            errorMessage: error instanceof Error ? error.message : '推送失败'
+            errorMessage: normalizeErrorMessage(error),
           }
         });
         await prisma.dataRecord.update({

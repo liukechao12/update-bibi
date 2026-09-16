@@ -9,6 +9,7 @@ export type PushRecord = {
   title: string;
   text: string;
   publishTime: string;
+  crawlTime?: string;
   author: string;
   originType: OriginType;
   publisherType: PublisherType;
@@ -23,6 +24,16 @@ export type PushRecord = {
 export type PushRequest = {
   version?: string;
   records: PushRecord[];
+};
+
+export type CurrentUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  department?: string | null;
+  accountType?: string | null;
+  roles: string[];
+  sessionId: string;
 };
 
 export type PushResponse = {
@@ -40,6 +51,7 @@ export type ParsedRawRecord = {
   title?: string;
   link?: string;
   summary?: string;
+  certType?: string;
   commentNum?: number | null;
   forwardNum?: number | null;
   praiseNum?: number | null;

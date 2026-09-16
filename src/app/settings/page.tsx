@@ -1,11 +1,21 @@
 import { requireAdmin } from '@/lib/guards';
 import { getPushConfig } from '@/lib/push-config';
 import VendorToggle from './vendor-toggle';
+import TencentDocSync from './tencent-doc-sync';
+import { getConfig } from '@/lib/push-config';
 
 export default async function SettingsPage() {
   await requireAdmin();
 
   const config = await getPushConfig();
+
+  const tencentDocConfig = {
+    enabled: await getConfig('TENCENT_DOC_SYNC_ENABLED'),
+    syncTime: await getConfig('TENCENT_DOC_SYNC_TIME'),
+    sheetId: await getConfig('TENCENT_DOC_SHEET_ID'),
+    sheetIds: await getConfig('TENCENT_DOC_SHEET_IDS'),
+    range: await getConfig('TENCENT_DOC_RANGE')
+  };
 
   const initialConfig = {
     url: config.url,
@@ -14,7 +24,8 @@ export default async function SettingsPage() {
     backoffInitialMs: config.backoffInitialMs,
     backoffMaxMs: config.backoffMaxMs,
     batchSize: config.batchSize,
-    timeoutMs: config.timeoutMs
+    timeoutMs: config.timeoutMs,
+    apiVersion: config.apiVersion
   };
 
   return (
@@ -22,7 +33,7 @@ export default async function SettingsPage() {
       <div className="header">
         <div className="brand">
           <span className="badge">系统配置</span>
-          <h1>接口地址、Token 与重试参数</h1>
+          <h1>接口地址、Token、协议版本与重试参数</h1>
           <p>所有配置保存后立即生效，推送时实时读取。</p>
         </div>
         <a className="button secondary" href="/">返回首页</a>
@@ -31,6 +42,11 @@ export default async function SettingsPage() {
       <div className="card" style={{ padding: 20 }}>
         <h2 className="section-title">供应商推送接口</h2>
         <VendorToggle initialConfig={initialConfig} />
+      </div>
+
+      <div className="card" style={{ padding: 20, marginTop: 20 }}>
+        <h2 className="section-title">腾讯文档同步</h2>
+        <TencentDocSync initialConfig={tencentDocConfig} />
       </div>
 
       <div className="card" style={{ padding: 20, marginTop: 20 }}>
@@ -45,6 +61,7 @@ export default async function SettingsPage() {
           <tbody>
             <tr><td>推送接口地址</td><td>客户接口完整地址，例如 https://uat-callback-api.bilibili.cn/api/messages</td></tr>
             <tr><td>Token</td><td>客户提供的鉴权 Token，会以 Bearer 方式发送</td></tr>
+            <tr><td>协议版本</td><td>默认 v2；切换 v3 前需确认对方接口已上线并完成联调</td></tr>
             <tr><td>最大重试次数</td><td>遇到 429 或 5xx 时的最大重试次数</td></tr>
             <tr><td>初始退避</td><td>第一次重试前等待的毫秒数</td></tr>
             <tr><td>最大退避</td><td>退避时间的上限，毫秒</td></tr>

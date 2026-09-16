@@ -1,9 +1,20 @@
+import { PushResponse } from '@/lib/types';
 import { prisma } from '@/lib/prisma';
-import { pushBatch } from '@/lib/push';
+import { buildVendorPushPayload, decidePushType, pushBatch } from '@/lib/push';
 import { PushRecordInput } from '@/lib/schemas';
 import { getPushConfig } from '@/lib/push-config';
+import { generateBatchNo, generateJobNo } from '@/lib/business-no';
 
 type PushError = { index: number; error: string; code?: string | number | null };
+
+const MAX_ERROR_MESSAGE_LENGTH = 60000;
+
+function normalizeErrorMessage(value: unknown) {
+  const message = value instanceof Error ? value.message : String(value ?? '推送失败');
+  return message.length > MAX_ERROR_MESSAGE_LENGTH
+    ? `${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}\n[错误详情已截断]`
+    : message;
+}
 
 function toPushPayload(record: {
   textId: string;
@@ -66,7 +77,7 @@ async function writePushResult(pushJobId: string, payload: Awaited<ReturnType<ty
       where: { id: item.id },
       data: {
         status: failure ? 'FAILED' : 'SUCCESS',
-        errorMessage: failure?.error ?? null,
+        errorMessage: failure ? normalizeErrorMessage(failure.error) : null,
         vendorResponseCode: failure?.code != null ? String(failure.code) : null
       }
     });
@@ -118,12 +129,12 @@ async function settleTransientStatuses(params: { recordIds: string[]; batchId: s
   }
 }
 
-async function runPushWithTimeout(records: ReturnType<typeof toPushPayload>[], pushJobId: string, timeoutMs: number) {
+async function runPushWithTimeout(records: ReturnType<typeof toPushPayload>[], pushJobId: string, timeoutMs: number, pushType: 'CREATE' | 'UPDATE') {
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const payload = await pushBatch(records, undefined, { signal: controller.signal });
+    const payload = await pushBatch(records, undefined, { signal: controller.signal, pushType });
     return { payload, timedOut: false };
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
@@ -143,7 +154,7 @@ export async function saveParsedRecordsOnly(userId: string, records: PushRecordI
 
   const batch = await prisma.dataBatch.create({
     data: {
-      batchNo: `BATCH-${Date.now()}`,
+      batchNo: generateBatchNo(),
       importType: 'PASTE',
       totalCount: uniqueRecords.length,
       validCount: uniqueRecords.length,
@@ -183,21 +194,38 @@ export async function saveParsedRecordsOnly(userId: string, records: PushRecordI
   return { batch, createdRecords };
 }
 
-export async function pushExistingRecords(userId: string, recordIds: string[]) {
+type ExistingPushResult = {
+  batchNo: string | null;
+  results: PushResponse[];
+  batchId: string | null;
+  skipped?: number;
+  message?: string;
+};
+
+export async function pushExistingRecords(userId: string, recordIds: string[]): Promise<ExistingPushResult> {
   const currentUser = await getCurrentUserWithRoles(userId);
   if (!currentUser) throw new Error('未找到当前用户');
 
   const records = await prisma.dataRecord.findMany({
     where: { id: { in: recordIds } },
-    include: { pushItems: { select: { status: true } } },
+    include: { 
+      pushItems: { 
+        select: { 
+          status: true,
+          pushType: true,
+          previousCommentNum: true,
+          previousForwardNum: true,
+          previousPraiseNum: true,
+          previousViewNum: true
+        },
+        orderBy: { createdAt: 'desc' }
+      } 
+    },
     orderBy: { createdAt: 'asc' }
   });
 
   if (records.length === 0) throw new Error('没有可推送的记录');
 
-  const alreadySuccessfulRecords = records.filter((record) =>
-    record.recordStatus === 'SUCCESS' || record.pushItems.some((item) => item.status === 'SUCCESS')
-  );
   const pushing = records.filter((record) =>
     record.recordStatus === 'PUSHING' || record.pushItems.some((item) => item.status === 'SENDING' || item.status === 'RETRYING')
   );
@@ -207,24 +235,54 @@ export async function pushExistingRecords(userId: string, recordIds: string[]) {
     throw new Error(`以下记录不能重复推送：${blocked.join('、')}`);
   }
 
-  if (alreadySuccessfulRecords.length > 0) {
-    await prisma.dataRecord.updateMany({
-      where: { id: { in: alreadySuccessfulRecords.map((record) => record.id) } },
-      data: { recordStatus: 'SUCCESS' }
-    });
+  const classified = records.map((record) => ({
+    record,
+    pushType: record.recordStatus === 'PENDING_PUSH'
+      ? (record.pushItems.some((item) => item.status === 'SUCCESS') ? 'UPDATE' : 'CREATE')
+      : decidePushType(record)
+  }));
+  const createIds = classified.filter((item) => item.pushType === 'CREATE').map((item) => item.record.id);
+  const updateIds = classified.filter((item) => item.pushType === 'UPDATE').map((item) => item.record.id);
+  const skipCount = classified.filter((item) => item.pushType === 'SKIP').length;
+
+  // 新增和更新接口的请求结构不同，混合选择时拆成两个独立任务。
+  if (createIds.length > 0 && updateIds.length > 0) {
+    const grouped: ExistingPushResult[] = await Promise.all([
+      pushExistingRecords(userId, createIds),
+      pushExistingRecords(userId, updateIds)
+    ]);
+    return {
+      batchNo: grouped.map((item) => item.batchNo).filter(Boolean).join(', ') || null,
+      results: grouped.flatMap((item) => item.results),
+      batchId: grouped.map((item) => item.batchId).filter(Boolean).join(', ') || null,
+      skipped: skipCount,
+      message: `新增 ${createIds.length} 条，更新 ${updateIds.length} 条，跳过 ${skipCount} 条未变化数据`
+    };
   }
 
-  const pushableRecords = records.filter((record) => !alreadySuccessfulRecords.some((item) => item.id === record.id));
-
+  const pushableRecords = classified.filter((item) => item.pushType !== 'SKIP').map((item) => item.record);
   if (pushableRecords.length === 0) {
     return {
       batchNo: null,
       results: [],
       batchId: null,
-      skipped: alreadySuccessfulRecords.length,
-      message: `已成功的记录已直接标记为成功，未重复推送 ${alreadySuccessfulRecords.length} 条`
+      skipped: skipCount,
+      message: `数据未发生变化，未重复推送 ${skipCount} 条`
     };
   }
+
+  const pushType = classified.find((item) => item.pushType !== 'SKIP')?.pushType === 'UPDATE' ? 'UPDATE' as const : 'CREATE' as const;
+  const recordsWithPushType = pushableRecords.map((record) => {
+    const latestSuccess = record.pushItems.find((item) => item.status === 'SUCCESS');
+    return {
+      ...record,
+      determinedPushType: decidePushType(record) === 'UPDATE' ? 'UPDATE' as const : 'CREATE' as const,
+      previousCommentNum: latestSuccess?.previousCommentNum ?? null,
+      previousForwardNum: latestSuccess?.previousForwardNum ?? null,
+      previousPraiseNum: latestSuccess?.previousPraiseNum ?? null,
+      previousViewNum: latestSuccess?.previousViewNum ?? null
+    };
+  });
 
   if (!currentUser.roles?.some((item) => item.role.roleCode === 'SUPER_ADMIN')) {
     const unauthorized = records.find((record) => record.createdById !== currentUser.id);
@@ -233,7 +291,7 @@ export async function pushExistingRecords(userId: string, recordIds: string[]) {
 
   const pushBatchRecord = await prisma.dataBatch.create({
     data: {
-      batchNo: `PUSH-${Date.now()}`,
+      batchNo: generateBatchNo('PUSH'),
       importType: 'MANUAL',
       totalCount: pushableRecords.length,
       validCount: pushableRecords.length,
@@ -247,20 +305,28 @@ export async function pushExistingRecords(userId: string, recordIds: string[]) {
   const pushJob = await prisma.pushJob.create({
     data: {
       batchId: pushBatchRecord.id,
-      jobNo: `JOB-${Date.now()}`,
+      jobNo: generateJobNo(),
       env: 'UAT',
-      endpoint: process.env.VENDOR_API_BASE_URL ?? '',
-      requestBody: { version: '1', records: pushableRecords.map((record) => toPushPayload(record)) },
+      endpoint: pushType === 'UPDATE'
+        ? (process.env.VENDOR_API_BASE_URL ?? '').replace(/\/messages$/, '/messages/revisions')
+        : (process.env.VENDOR_API_BASE_URL ?? ''),
+      pushType,
+      requestBody: await buildVendorPushPayload(pushableRecords.map((record) => toPushPayload(record)), pushType),
       status: 'SENDING',
       createdById: currentUser.id
     }
   });
 
   await prisma.pushJobItem.createMany({
-    data: pushableRecords.map((record, index) => ({
+    data: recordsWithPushType.map((record, index) => ({
       pushJobId: pushJob.id,
       recordId: record.id,
       itemIndex: index + 1,
+      pushType: record.determinedPushType,
+      previousCommentNum: record.commentNum,
+      previousForwardNum: record.forwardNum,
+      previousPraiseNum: record.praiseNum,
+      previousViewNum: record.viewNum,
       status: 'SENDING'
     }))
   });
@@ -274,7 +340,12 @@ export async function pushExistingRecords(userId: string, recordIds: string[]) {
   const timeoutReason = `推送超时，超过 ${Math.round(pushConfig.timeoutMs / 1000)} 秒未完成`;
 
   try {
-    const { payload, timedOut } = await runPushWithTimeout(pushableRecords.map((record) => toPushPayload(record)), pushJob.id, pushConfig.timeoutMs);
+    const { payload, timedOut } = await runPushWithTimeout(
+      pushableRecords.map((record) => toPushPayload(record)), 
+      pushJob.id, 
+      pushConfig.timeoutMs,
+      pushType
+    );
 
     if (timedOut) {
       await prisma.pushJob.update({
@@ -298,11 +369,6 @@ export async function pushExistingRecords(userId: string, recordIds: string[]) {
       await prisma.dataRecord.updateMany({
         where: { id: { in: pushableRecords.map((record) => record.id) } },
         data: { recordStatus: 'FAILED' }
-      });
-
-      await prisma.dataRecord.updateMany({
-        where: { id: { in: alreadySuccessfulRecords.map((record) => record.id) } },
-        data: { recordStatus: 'SUCCESS' }
       });
 
       await prisma.dataBatch.update({

@@ -33,7 +33,8 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
   const page = Math.max(1, Number(resolvedSearchParams.page ?? '1') || 1);
   const keyword = resolvedSearchParams.keyword?.trim() ?? '';
   const submitter = resolvedSearchParams.submitter?.trim() ?? '';
-  const statusFilter = !resolvedSearchParams.status || resolvedSearchParams.status === 'ALL' ? '' : resolvedSearchParams.status;
+  // URL 未指定状态时默认只看待推送（与页面表单默认值一致），避免无过滤条件时扫全表
+  const statusFilter = !(resolvedSearchParams.status ?? 'PENDING_PUSH') || (resolvedSearchParams.status ?? 'PENDING_PUSH') === 'ALL' ? '' : (resolvedSearchParams.status ?? 'PENDING_PUSH');
 
   const users = await prisma.user.findMany({
     select: { id: true, displayName: true },
@@ -70,7 +71,25 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
   const queryOptions = {
     where,
     orderBy: { createdAt: 'desc' as const },
-    include: { batch: { include: { createdBy: true } } }
+    select: {
+      id: true,
+      textId: true,
+      title: true,
+      author: true,
+      originType: true,
+      url: true,
+      publishTime: true,
+      commentNum: true,
+      forwardNum: true,
+      praiseNum: true,
+      viewNum: true,
+      tendency: true,
+      recordStatus: true,
+      isDuplicate: true,
+      batchId: true,
+      createdAt: true,
+      batch: { select: { batchNo: true, createdBy: { select: { displayName: true } } } }
+    }
   };
 
   const [records, total] = await Promise.all([
@@ -130,7 +149,6 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
     id: record.id,
     textId: record.textId,
     title: record.title,
-    text: record.text,
     author: record.author,
     originType: record.originType,
     url: record.url,
@@ -142,7 +160,6 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
     tendency: record.tendency,
     recordStatus: record.recordStatus,
     isDuplicate: record.isDuplicate,
-    rawSourceText: record.rawSourceText,
     batchId: record.batchId,
     batchNo: record.batch?.batchNo ?? null,
     createdByName: record.batch?.createdBy?.displayName ?? null,

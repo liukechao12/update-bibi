@@ -6,7 +6,7 @@ export function validateRawPasteText(sourceText: string) {
   const missing = findMissingFields(sourceText);
   const records = parseRawTextRecords(sourceText);
   const mapped = records.map((record) => mapRawRecordToPushRecord(record));
-  const parsed = pushRequestSchema.safeParse({ version: '1', records: mapped });
+  const parsed = pushRequestSchema.safeParse({ version: '3', records: mapped });
 
   return {
     totalBlocks: records.length,

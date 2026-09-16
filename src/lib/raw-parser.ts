@@ -1,21 +1,31 @@
 import { ParsedRawRecord } from '@/lib/types';
 
-const REQUIRED_LABELS = ['倾向性', '来源', '作者', '时间', '标题', '链接', '摘要', '评论数'];
-const OPTIONAL_LABELS = ['粉丝数', '转发数', '转发量', '点赞数', '点赞量', '阅读数', '阅读量', '浏览量'];
+const REQUIRED_LABELS = ['倾向性', '来源', '作者', '时间', '标题', '链接', '简述', '评论数'];
+const OPTIONAL_LABELS = ['粉丝数', '转发数', '转发量', '点赞数', '点赞量', '阅读数', '阅读量', '浏览量', '认证类型', '摘要'];
 const ALL_LABELS = [...REQUIRED_LABELS, ...OPTIONAL_LABELS];
+const SUMMARY_LABELS = ['简述', '摘要'];
 
 function normalizeLine(line: string) {
   return line.trim();
 }
 
-function readValue(block: string, label: string) {
-  const line = block
-    .split('\n')
-    .map(normalizeLine)
-    .find((item) => item.startsWith(`${label}:`));
+function getLineLabel(line: string) {
+  const bracketMatch = line.match(/^【([^】]+)】/);
+  if (bracketMatch) return bracketMatch[1];
+  const colonMatch = line.match(/^([^:：]+)[:：]/);
+  return colonMatch ? colonMatch[1].trim() : '';
+}
 
+function readValue(block: string, label: string) {
+  const lines = block.split('\n').map(normalizeLine).filter(Boolean);
+  const colonPrefixes = [`${label}:`, `${label}：`];
+  const bracketPrefix = `【${label}】`;
+  const line = lines.find((item) => colonPrefixes.some((prefix) => item.startsWith(prefix)) || item.startsWith(bracketPrefix));
   if (!line) return '';
-  return line.slice(label.length + 1).trim();
+
+  if (line.startsWith(bracketPrefix)) return line.slice(bracketPrefix.length).trim();
+  const prefix = colonPrefixes.find((item) => line.startsWith(item));
+  return prefix ? line.slice(prefix.length).trim() : '';
 }
 
 function readValueAny(block: string, labels: string[]) {
@@ -27,38 +37,36 @@ function readValueAny(block: string, labels: string[]) {
 }
 
 function toNumber(value: string) {
-  if (!value) return null;
+  if (!value || value.trim() === '' || value.trim() === '-' || value.trim() === '—') return null;
   const normalized = value.replace(/,/g, '').trim();
   const num = Number(normalized);
   return Number.isFinite(num) ? num : null;
 }
 
 function splitBlocks(sourceText: string) {
-  const lines = sourceText
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-
+  const lines = sourceText.split('\n').map(normalizeLine).filter(Boolean);
   const blocks: string[] = [];
   let current: string[] = [];
+  const seenLabels = new Set<string>();
 
   for (const line of lines) {
-    const startsNewBlock = line.startsWith('倾向性:') && current.length > 0;
-    const lineLooksLikeRecordField = ALL_LABELS.some((label) => line.startsWith(`${label}:`));
+    const label = getLineLabel(line);
+    const isKnownField = ALL_LABELS.includes(label);
+    const startsNewBlock = current.length > 0 && isKnownField && seenLabels.has(label);
 
-    if (startsNewBlock && lineLooksLikeRecordField) {
+    if (startsNewBlock) {
       blocks.push(current.join('\n'));
       current = [line];
+      seenLabels.clear();
+      seenLabels.add(label);
       continue;
     }
 
     current.push(line);
+    if (isKnownField) seenLabels.add(label);
   }
 
-  if (current.length > 0) {
-    blocks.push(current.join('\n'));
-  }
-
+  if (current.length > 0) blocks.push(current.join('\n'));
   return blocks;
 }
 
@@ -71,7 +79,8 @@ export function parseRawTextRecords(sourceText: string): ParsedRawRecord[] {
     time: readValue(block, '时间'),
     title: readValue(block, '标题'),
     link: readValue(block, '链接'),
-    summary: readValue(block, '摘要'),
+    summary: readValueAny(block, SUMMARY_LABELS),
+    certType: readValue(block, '认证类型'),
     commentNum: toNumber(readValue(block, '评论数')),
     forwardNum: toNumber(readValueAny(block, ['转发数', '转发量'])),
     praiseNum: toNumber(readValueAny(block, ['点赞数', '点赞量'])),
@@ -80,15 +89,17 @@ export function parseRawTextRecords(sourceText: string): ParsedRawRecord[] {
 }
 
 export function findMissingFields(rawText: string) {
-  const blocks = splitBlocks(rawText);
+  return splitBlocks(rawText).map((block, index) => ({
+    index,
+    missing: REQUIRED_LABELS.filter((label) => {
+      if (label === '简述') return !readValueAny(block, SUMMARY_LABELS);
+      return !readValue(block, label);
+    })
+  }));
+}
 
-  return blocks.map((block, index) => {
-    const missing = REQUIRED_LABELS.filter((label) => !readValue(block, label));
-    return {
-      index,
-      missing
-    };
-  });
+export function findMissingTendency(rawText: string) {
+  return parseRawTextRecords(rawText).some((record) => !record.tendency?.trim());
 }
 
 export function extractRawBlocks(sourceText: string) {

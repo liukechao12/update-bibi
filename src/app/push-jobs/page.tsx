@@ -121,6 +121,7 @@ export default async function PushJobsPage({ searchParams }: { searchParams: Pro
               <tr>
                 <th>任务号</th>
                 <th>批次号</th>
+                <th>推送类型</th>
                 <th>提交人</th>
                 <th>状态</th>
                 <th>成功</th>
@@ -133,7 +134,7 @@ export default async function PushJobsPage({ searchParams }: { searchParams: Pro
             </thead>
             <tbody>
               {jobs.length === 0 ? (
-                <tr><td colSpan={10} style={{ textAlign: 'center' }}>暂无数据</td></tr>
+                <tr><td colSpan={11} style={{ textAlign: 'center' }}>暂无数据</td></tr>
               ) : jobs.map((job) => {
                 const reason = resolveFailureReason(job.responseBody);
                 const timeout = isTimeoutReason(reason);
@@ -147,6 +148,7 @@ export default async function PushJobsPage({ searchParams }: { searchParams: Pro
                   <tr key={job.id} style={timeout ? { background: '#fff5f5' } : undefined}>
                     <td style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.jobNo}</td>
                     <td style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.batch ? <Link href={`/batches/${job.batch.id}`}>{job.batch.batchNo}</Link> : '-'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{job.pushType === 'UPDATE' ? '更新' : '新增'}</td>
                     <td style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.createdBy?.displayName ?? '-'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <span style={{
