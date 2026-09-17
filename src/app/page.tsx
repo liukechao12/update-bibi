@@ -38,9 +38,9 @@ export default async function DashboardPage() {
 
   const [
     todayRecords,
-    todaySuccessPushJobs,
-    todayFailedPushJobs,
-    pendingBatches,
+    todaySuccessRecords,
+    todayFailedRecords,
+    pendingRecords,
     totalBatches,
     totalRecords,
     totalPushJobs,
@@ -52,27 +52,27 @@ export default async function DashboardPage() {
     beforeYesterdayFailedPushJobs
   ] = await Promise.all([
     prisma.dataRecord.count({ where: { ...userFilter, createdAt: { gte: today } } }),
-    prisma.pushJob.count({ where: { ...userJobFilter, createdAt: { gte: today }, status: 'SUCCESS' } }),
-    prisma.pushJob.count({ where: { ...userJobFilter, createdAt: { gte: today }, status: 'FAILED' } }),
-    prisma.dataBatch.count({ where: { ...userBatchFilter, status: { in: ['PENDING_PUSH', 'PUSHING'] } } }),
+    prisma.pushJob.aggregate({ where: { ...userJobFilter, createdAt: { gte: today }, status: 'SUCCESS' }, _sum: { insertedCount: true } }),
+    prisma.pushJob.aggregate({ where: { ...userJobFilter, createdAt: { gte: today }, status: 'FAILED' }, _sum: { failedCount: true } }),
+    prisma.dataRecord.count({ where: { ...userFilter, recordStatus: { in: ['PENDING_PUSH', 'VALIDATED', 'RETRYING'] } } }),
     prisma.dataBatch.count({ where: userBatchFilter }),
     prisma.dataRecord.count({ where: userFilter }),
     prisma.pushJob.count({ where: userJobFilter }),
     prisma.dataRecord.count({ where: { ...userFilter, createdAt: { gte: yesterday, lt: today } } }),
-    prisma.pushJob.count({ where: { ...userJobFilter, createdAt: { gte: yesterday, lt: today }, status: 'SUCCESS' } }),
-    prisma.pushJob.count({ where: { ...userJobFilter, createdAt: { gte: yesterday, lt: today }, status: 'FAILED' } }),
+    prisma.pushJob.aggregate({ where: { ...userJobFilter, createdAt: { gte: yesterday, lt: today }, status: 'SUCCESS' }, _sum: { insertedCount: true } }),
+    prisma.pushJob.aggregate({ where: { ...userJobFilter, createdAt: { gte: yesterday, lt: today }, status: 'FAILED' }, _sum: { failedCount: true } }),
     prisma.dataRecord.count({ where: { ...userFilter, createdAt: { gte: beforeYesterday, lt: yesterday } } }),
-    prisma.pushJob.count({ where: { ...userJobFilter, createdAt: { gte: beforeYesterday, lt: yesterday }, status: 'SUCCESS' } }),
-    prisma.pushJob.count({ where: { ...userJobFilter, createdAt: { gte: beforeYesterday, lt: yesterday }, status: 'FAILED' } })
+    prisma.pushJob.aggregate({ where: { ...userJobFilter, createdAt: { gte: beforeYesterday, lt: yesterday }, status: 'SUCCESS' }, _sum: { insertedCount: true } }),
+    prisma.pushJob.aggregate({ where: { ...userJobFilter, createdAt: { gte: beforeYesterday, lt: yesterday }, status: 'FAILED' }, _sum: { failedCount: true } })
   ]);
 
   const totalUsers = isAdmin ? await prisma.user.count() : null;
 
   const todayKpis = [
     { label: '今日新增数据', value: todayRecords, delta: formatPercent(todayRecords, yesterdayRecords) },
-    { label: '今日成功推送', value: todaySuccessPushJobs, delta: formatPercent(todaySuccessPushJobs, yesterdaySuccessPushJobs) },
-    { label: '今日失败记录', value: todayFailedPushJobs, delta: formatPercent(todayFailedPushJobs, yesterdayFailedPushJobs) },
-    { label: '待推送批次', value: pendingBatches, delta: '实时' }
+    { label: '今日成功推送记录', value: todaySuccessRecords._sum.insertedCount ?? 0, delta: formatPercent(todaySuccessRecords._sum.insertedCount ?? 0, yesterdaySuccessPushJobs._sum.insertedCount ?? 0) },
+    { label: '今日失败推送记录', value: todayFailedRecords._sum.failedCount ?? 0, delta: formatPercent(todayFailedRecords._sum.failedCount ?? 0, yesterdayFailedPushJobs._sum.failedCount ?? 0) },
+    { label: '待推送记录', value: pendingRecords, delta: '实时' }
   ];
 
   const totalKpis = [
@@ -107,16 +107,16 @@ export default async function DashboardPage() {
       delta: formatPercent(todayRecords, yesterdayRecords)
     },
     {
-      label: '成功推送趋势',
-      today: todaySuccessPushJobs,
-      yesterday: yesterdaySuccessPushJobs,
-      delta: formatPercent(todaySuccessPushJobs, yesterdaySuccessPushJobs)
+      label: '成功推送记录趋势',
+      today: todaySuccessRecords._sum.insertedCount ?? 0,
+      yesterday: yesterdaySuccessPushJobs._sum.insertedCount ?? 0,
+      delta: formatPercent(todaySuccessRecords._sum.insertedCount ?? 0, yesterdaySuccessPushJobs._sum.insertedCount ?? 0)
     },
     {
-      label: '失败记录趋势',
-      today: todayFailedPushJobs,
-      yesterday: yesterdayFailedPushJobs,
-      delta: formatPercent(todayFailedPushJobs, yesterdayFailedPushJobs)
+      label: '失败推送记录趋势',
+      today: todayFailedRecords._sum.failedCount ?? 0,
+      yesterday: yesterdayFailedPushJobs._sum.failedCount ?? 0,
+      delta: formatPercent(todayFailedRecords._sum.failedCount ?? 0, yesterdayFailedPushJobs._sum.failedCount ?? 0)
     }
   ];
 
