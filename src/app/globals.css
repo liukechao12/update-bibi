@@ -220,7 +220,7 @@ select {
 .topnav {
   position: sticky;
   top: 0;
-  z-index: 50;
+  z-index: 120;
   background: rgba(255, 255, 255, 0.88);
   backdrop-filter: saturate(180%) blur(12px);
   border-bottom: 1px solid var(--border);
@@ -233,7 +233,7 @@ select {
   padding: 0 24px;
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 18px;
 }
 
 .topnav-logo {
@@ -270,12 +270,8 @@ select {
   align-items: center;
   gap: 4px;
   flex: 1;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.topnav-menu::-webkit-scrollbar {
-  display: none;
+  min-width: 0;
+  overflow: visible;
 }
 
 .topnav-item {
@@ -300,6 +296,94 @@ select {
   background: linear-gradient(135deg, #eaf0ff, #f3edff);
   color: var(--primary);
   font-weight: 600;
+}
+
+.topnav-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.topnav-dropdown-trigger {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.topnav-dropdown-trigger[aria-expanded="true"] {
+  background: linear-gradient(135deg, #eaf0ff, #f3edff);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.topnav-chevron {
+  margin-left: 2px;
+  font-size: 13px;
+  line-height: 1;
+  transform: translateY(-1px);
+  transition: transform 0.16s ease;
+}
+
+.topnav-dropdown:hover .topnav-chevron,
+.topnav-dropdown:focus-within .topnav-chevron {
+  transform: translateY(1px) rotate(180deg);
+}
+
+.topnav-dropdown-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  width: 210px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 45px rgba(16, 35, 63, 0.15);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.topnav-dropdown-panel::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -12px;
+  height: 12px;
+}
+
+.topnav-dropdown:hover .topnav-dropdown-panel,
+.topnav-dropdown:focus-within .topnav-dropdown-panel {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.topnav-dropdown-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.topnav-dropdown-link:hover {
+  background: var(--primary-weak);
+  color: var(--primary);
+}
+
+.topnav-dropdown-link[aria-current="page"] {
+  background: linear-gradient(135deg, #eaf0ff, #f3edff);
+  color: var(--primary);
+  font-weight: 700;
 }
 
 .topnav-user {
@@ -329,6 +413,13 @@ select {
 @media (max-width: 900px) {
   .topnav-logo-text {
     display: none;
+  }
+  .topnav-inner {
+    gap: 12px;
+    padding: 0 16px;
+  }
+  .topnav-item {
+    padding: 8px 10px;
   }
 }
 
@@ -446,6 +537,27 @@ select {
   font-weight: 600;
 }
 
+.topnav-drawer-group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.topnav-drawer-group-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.topnav-drawer-subitem {
+  padding-left: 24px;
+}
+
 /* ===== ≤768px：隐藏顶部水平菜单 + 显示汉堡按钮 ===== */
 @media (max-width: 768px) {
   .topnav-menu {
@@ -551,4 +663,3 @@ select {
     overflow-x: auto;
   }
 }
-

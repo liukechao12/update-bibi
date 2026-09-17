@@ -88,26 +88,26 @@ enum ExternalApiClientStatus {
 }
 
 model User {
-  id                  String         @id @default(cuid())
-  username            String         @unique
+  id                  String              @id @default(cuid())
+  username            String              @unique
   passwordHash        String
   displayName         String
   phone               String?
   email               String?
   department          String?
-  status              UserStatus     @default(ACTIVE)
-  accountType         String?        @default("social")
+  status              UserStatus          @default(ACTIVE)
+  accountType         String?             @default("social")
   lastLoginAt         DateTime?
-  currentSessionId    String?        @unique
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
+  currentSessionId    String?             @unique
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
   roles               UserRole[]
-  createdBatches      DataBatch[]    @relation("BatchCreatedBy")
-  createdDataRecords  DataRecord[]   @relation("RecordCreatedBy")
-  createdPushJobs     PushJob[]      @relation("PushJobCreatedBy")
+  createdBatches      DataBatch[]         @relation("BatchCreatedBy")
+  createdDataRecords  DataRecord[]        @relation("RecordCreatedBy")
+  createdPushJobs     PushJob[]           @relation("PushJobCreatedBy")
   auditLogs           AuditLog[]
-  uploadedImportFiles ImportFile[]   @relation("UploadedBy")
-  updatedConfigs      SystemConfig[] @relation("UpdatedBy")
+  uploadedImportFiles ImportFile[]        @relation("UploadedBy")
+  updatedConfigs      SystemConfig[]      @relation("UpdatedBy")
   mediaLibraries      MediaLibrary[]
   externalApiClients  ExternalApiClient[] @relation("ExternalApiClientCreatedBy")
 }
@@ -155,64 +155,68 @@ model RolePermission {
 }
 
 model DataBatch {
-  id              String       @id @default(cuid())
-  batchNo         String       @unique
-  importType      ImportType
-  sourceFileName  String?
-  sourceSheetName String?
-  totalCount      Int          @default(0)
-  validCount      Int          @default(0)
-  invalidCount    Int          @default(0)
-  pushCount       Int          @default(0)
-  successCount    Int          @default(0)
-  failCount       Int          @default(0)
-  status          BatchStatus  @default(CREATED)
-  createdById     String
-  createdAt       DateTime     @default(now())
-  pushedAt        DateTime?
-  remark          String?        @db.Text
-  createdBy       User         @relation("BatchCreatedBy", fields: [createdById], references: [id])
-  records         DataRecord[]
-  pushJobs        PushJob[]
-  importFiles     ImportFile[]
+  id               String       @id @default(cuid())
+  batchNo          String       @unique
+  importType       ImportType
+  sourceFileName   String?
+  sourceSheetName  String?
+  totalCount       Int          @default(0)
+  validCount       Int          @default(0)
+  invalidCount     Int          @default(0)
+  pushCount        Int          @default(0)
+  successCount     Int          @default(0)
+  failCount        Int          @default(0)
+  status           BatchStatus  @default(CREATED)
+  sourceDepartment String?
+  createdById      String
+  createdAt        DateTime     @default(now())
+  pushedAt         DateTime?
+  remark           String?      @db.Text
+  createdBy        User         @relation("BatchCreatedBy", fields: [createdById], references: [id])
+  records          DataRecord[]
+  pushJobs         PushJob[]
+  importFiles      ImportFile[]
 
   @@index([createdById, createdAt])
   @@index([status, createdAt])
+  @@index([sourceDepartment, createdAt])
 }
 
 model DataRecord {
-  id            String        @id @default(cuid())
-  batchId       String
-  textId        String        @unique
-  title         String        @db.Text
-  text          String        @db.LongText
-  publishTime   DateTime
-  author        String
-  originType    OriginType
-  publisherType PublisherType @default(SOCIAL)
-  authorType    AuthorType?
-  url           String        @db.Text
-  commentNum    Int
-  forwardNum    Int?
-  praiseNum     Int?
-  viewNum       Int?
-  tendency      String?
-  rawSourceText String?       @db.LongText
-  sourceRowNo   Int?
-  recordStatus  RecordStatus  @default(DRAFT)
-  isDuplicate   Boolean       @default(false)
-  createdById   String
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  batch         DataBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  createdBy     User          @relation("RecordCreatedBy", fields: [createdById], references: [id])
-  pushItems     PushJobItem[]
+  id               String        @id @default(cuid())
+  batchId          String
+  textId           String        @unique
+  title            String        @db.Text
+  text             String        @db.LongText
+  publishTime      DateTime
+  author           String
+  originType       OriginType
+  publisherType    PublisherType @default(SOCIAL)
+  authorType       AuthorType?
+  url              String        @db.Text
+  commentNum       Int
+  forwardNum       Int?
+  praiseNum        Int?
+  viewNum          Int?
+  tendency         String?
+  rawSourceText    String?       @db.LongText
+  sourceRowNo      Int?
+  sourceDepartment String?
+  recordStatus     RecordStatus  @default(DRAFT)
+  isDuplicate      Boolean       @default(false)
+  createdById      String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  batch            DataBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  createdBy        User          @relation("RecordCreatedBy", fields: [createdById], references: [id])
+  pushItems        PushJobItem[]
 
   @@index([createdById, recordStatus, createdAt])
   @@index([recordStatus, createdAt])
   @@index([createdAt])
   @@index([originType, publisherType])
   @@index([createdById, createdAt])
+  @@index([sourceDepartment, createdAt])
 }
 
 model PushJob {
@@ -254,8 +258,8 @@ model PushJobItem {
   previousPraiseNum  Int?
   previousViewNum    Int?
   status             String
-  errorMessage       String?  @db.Text
-  vendorResponseCode String?  @db.Text
+  errorMessage       String?    @db.Text
+  vendorResponseCode String?    @db.Text
   createdAt          DateTime   @default(now())
   pushJob            PushJob    @relation(fields: [pushJobId], references: [id], onDelete: Cascade)
   record             DataRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
@@ -278,14 +282,14 @@ model ImportFile {
 }
 
 model SystemConfig {
-  id           String   @id @default(cuid())
-  configKey    String   @unique
-  configValue  String   @db.LongText
-  configType   String   @default("STRING")
-  updatedById  String?
-  updatedAt    DateTime @updatedAt
-  createdAt    DateTime @default(now())
-  updatedBy    User?    @relation("UpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  id          String   @id @default(cuid())
+  configKey   String   @unique
+  configValue String   @db.LongText
+  configType  String   @default("STRING")
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedBy   User?    @relation("UpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 }
 
 model AuditLog {
@@ -323,26 +327,26 @@ model MediaLibrary {
 }
 
 model EventRecord {
-  id            String   @id @default(cuid())
-  category      String
+  id             String    @id @default(cuid())
+  category       String
   sourceFileName String
-  seqNo         Int
-  source        String?
-  author        String?
-  fansCount     Int      @default(0)
-  authType      String?
-  publishTime   DateTime?
-  title         String?  @db.Text
-  link          String?  @db.Text
-  summary       String?  @db.Text
-  viewCount     Int      @default(0)
-  forwardCount  Int      @default(0)
-  replyCount    Int      @default(0)
-  praiseCount   Int      @default(0)
-  tendency      String?
-  rawData       Json?
-  rowNo         Int
-  createdAt     DateTime @default(now())
+  seqNo          Int
+  source         String?
+  author         String?
+  fansCount      Int       @default(0)
+  authType       String?
+  publishTime    DateTime?
+  title          String?   @db.Text
+  link           String?   @db.Text
+  summary        String?   @db.Text
+  viewCount      Int       @default(0)
+  forwardCount   Int       @default(0)
+  replyCount     Int       @default(0)
+  praiseCount    Int       @default(0)
+  tendency       String?
+  rawData        Json?
+  rowNo          Int
+  createdAt      DateTime  @default(now())
 
   @@index([category, publishTime, id])
   @@index([category, createdAt])
@@ -353,31 +357,33 @@ model EventRecord {
 }
 
 model ExternalApiClient {
-  id            String                  @id @default(cuid())
-  clientCode    String                  @unique
-  clientName    String
-  apiKeyHash    String                  @unique
-  status        ExternalApiClientStatus @default(ACTIVE)
-  allowAllEvents Boolean                @default(false)
-  rateLimitPerMinute Int                @default(60)
-  expiresAt     DateTime?
-  lastUsedAt    DateTime?
-  createdById   String
-  createdAt     DateTime                @default(now())
-  updatedAt     DateTime                @updatedAt
-  createdBy     User                    @relation("ExternalApiClientCreatedBy", fields: [createdById], references: [id])
-  eventScopes   ExternalApiClientEventScope[]
-  requestLogs   ExternalApiRequestLog[]
+  id                 String                        @id @default(cuid())
+  clientCode         String                        @unique
+  clientName         String
+  department         String?
+  apiKeyHash         String                        @unique
+  status             ExternalApiClientStatus       @default(ACTIVE)
+  allowAllEvents     Boolean                       @default(false)
+  rateLimitPerMinute Int                           @default(60)
+  expiresAt          DateTime?
+  lastUsedAt         DateTime?
+  createdById        String
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
+  createdBy          User                          @relation("ExternalApiClientCreatedBy", fields: [createdById], references: [id])
+  eventScopes        ExternalApiClientEventScope[]
+  requestLogs        ExternalApiRequestLog[]
 
   @@index([status, createdAt])
+  @@index([department, createdAt])
 }
 
 model ExternalApiClientEventScope {
-  id                String            @id @default(cuid())
-  clientId          String
-  eventCategory     String
-  createdAt         DateTime          @default(now())
-  client            ExternalApiClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id            String            @id @default(cuid())
+  clientId      String
+  eventCategory String
+  createdAt     DateTime          @default(now())
+  client        ExternalApiClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, eventCategory])
   @@index([eventCategory])
@@ -401,21 +407,21 @@ model ExternalApiRequestLog {
 }
 
 model DocumentSyncLog {
-  id             String   @id @default(cuid())
-  triggerType    String
-  sourceUrl      String   @db.Text
-  status         String
-  totalRows      Int      @default(0)
-  createdCount   Int      @default(0)
-  updatedCount   Int      @default(0)
-  skippedCount   Int      @default(0)
-  invalidCount   Int      @default(0)
-  pushedCount    Int      @default(0)
-  failedCount    Int      @default(0)
-  details        Json?
-  errorMessage   String?  @db.Text
-  startedAt      DateTime @default(now())
-  finishedAt     DateTime?
+  id           String    @id @default(cuid())
+  triggerType  String
+  sourceUrl    String    @db.Text
+  status       String
+  totalRows    Int       @default(0)
+  createdCount Int       @default(0)
+  updatedCount Int       @default(0)
+  skippedCount Int       @default(0)
+  invalidCount Int       @default(0)
+  pushedCount  Int       @default(0)
+  failedCount  Int       @default(0)
+  details      Json?
+  errorMessage String?   @db.Text
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
 
   @@index([startedAt])
   @@index([status, startedAt])

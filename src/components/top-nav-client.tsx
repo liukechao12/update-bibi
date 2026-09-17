@@ -18,6 +18,12 @@ type TopNavClientProps = {
   visibleItems: NavItem[];
 };
 
+type NavGroup = {
+  label: string;
+  icon: string;
+  items: NavItem[];
+};
+
 // 图标 SVG path 集合，client 内保留一份本地映射避免和 server 共享运行期对象
 const icons: Record<string, string> = {
   home: 'M3 11.5 12 4l9 7.5M5 10v10h14V10',
@@ -35,6 +41,26 @@ const icons: Record<string, string> = {
   settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM19.4 13a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V20a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 18.3a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 2.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 2.6V2a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 17 3.7l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1.6Z'
 };
 
+const primaryHrefs = new Set(['/', '/data-entry', '/excel-import', '/records', '/event-records']);
+
+const groupConfig = [
+  {
+    label: '批次与推送',
+    icon: 'batch',
+    hrefs: ['/batches', '/push-jobs']
+  },
+  {
+    label: '资料管理',
+    icon: 'library',
+    hrefs: ['/media-libraries']
+  },
+  {
+    label: '系统管理',
+    icon: 'settings',
+    hrefs: ['/users', '/external-api-clients', '/external-api-logs', '/settings', '/profile']
+  }
+] as const;
+
 function Icon({ name }: { name: string }) {
   const path = icons[name] ?? icons.home;
   return (
@@ -42,6 +68,12 @@ function Icon({ name }: { name: string }) {
       <path d={path} />
     </svg>
   );
+}
+
+function isCurrent(pathname: string | null, href: string) {
+  return href === '/'
+    ? pathname === '/'
+    : pathname === href || pathname?.startsWith(`${href}/`);
 }
 
 // 汉堡图标 & 关闭图标
@@ -60,6 +92,16 @@ function MenuIcon({ open }: { open: boolean }) {
 export default function TopNavClient({ user, visibleItems }: TopNavClientProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const primaryItems = visibleItems.filter((item) => primaryHrefs.has(item.href));
+  const groupedItems: NavGroup[] = groupConfig
+    .map((group) => ({
+      label: group.label,
+      icon: group.icon,
+      items: group.hrefs
+        .map((href) => visibleItems.find((item) => item.href === href))
+        .filter((item): item is NavItem => Boolean(item))
+    }))
+    .filter((group) => group.items.length > 0);
 
   // 路由切换时自动关闭抽屉
   useEffect(() => {
@@ -91,10 +133,8 @@ export default function TopNavClient({ user, visibleItems }: TopNavClientProps) 
       </Link>
 
       <nav className="topnav-menu" aria-label="主导航">
-        {visibleItems.map((item) => {
-          const current = item.href === '/'
-            ? pathname === '/'
-            : pathname === item.href || pathname?.startsWith(`${item.href}/`);
+        {primaryItems.map((item) => {
+          const current = isCurrent(pathname, item.href);
           return (
             <Link
               key={item.href}
@@ -106,6 +146,36 @@ export default function TopNavClient({ user, visibleItems }: TopNavClientProps) 
               <Icon name={item.icon} />
               <span>{item.label}</span>
             </Link>
+          );
+        })}
+
+        {groupedItems.map((group) => {
+          const active = group.items.some((item) => isCurrent(pathname, item.href));
+          return (
+            <div key={group.label} className="topnav-dropdown">
+              <button
+                type="button"
+                className="topnav-item topnav-dropdown-trigger"
+                aria-expanded={active ? 'true' : undefined}
+              >
+                <Icon name={group.icon} />
+                <span>{group.label}</span>
+                <span className="topnav-chevron">⌄</span>
+              </button>
+              <div className="topnav-dropdown-panel">
+                {group.items.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="topnav-dropdown-link"
+                    aria-current={isCurrent(pathname, item.href) ? 'page' : undefined}
+                  >
+                    <Icon name={item.icon} />
+                    <span>{item.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
           );
         })}
       </nav>
@@ -171,10 +241,8 @@ export default function TopNavClient({ user, visibleItems }: TopNavClientProps) 
         ) : null}
 
         <nav className="topnav-drawer-menu" aria-label="移动端导航列表">
-          {visibleItems.map((item) => {
-            const current = item.href === '/'
-              ? pathname === '/'
-              : pathname === item.href || pathname?.startsWith(`${item.href}/`);
+          {primaryItems.map((item) => {
+            const current = isCurrent(pathname, item.href);
             return (
               <Link
                 key={item.href}
@@ -187,6 +255,26 @@ export default function TopNavClient({ user, visibleItems }: TopNavClientProps) 
               </Link>
             );
           })}
+
+          {groupedItems.map((group) => (
+            <div key={group.label} className="topnav-drawer-group">
+              <div className="topnav-drawer-group-title">
+                <Icon name={group.icon} />
+                <span>{group.label}</span>
+              </div>
+              {group.items.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="topnav-drawer-item topnav-drawer-subitem"
+                  aria-current={isCurrent(pathname, item.href) ? 'page' : undefined}
+                >
+                  <Icon name={item.icon} />
+                  <span>{item.label}</span>
+                </Link>
+              ))}
+            </div>
+          ))}
         </nav>
       </aside>
     </>
