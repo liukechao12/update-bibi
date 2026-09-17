@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireApiUser } from '@/lib/api-auth';
 import { labelOrValue, originTypeLabelMap, recordStatusLabelMap } from '@/lib/labels';
@@ -7,6 +8,13 @@ function csvEscape(value: unknown) {
   const text = value == null ? '' : String(value);
   return `"${text.replace(/"/g, '""')}"`;
 }
+
+// 导出查询的 include 选择，单独提出来避免在 findMany 里推断时自引用
+const exportInclude = { batch: { include: { createdBy: true } } } as const satisfies Prisma.DataRecordInclude;
+
+type ExportRecord = Prisma.DataRecordGetPayload<{
+  include: typeof exportInclude;
+}> & { sourceDepartment: string | null };
 
 export async function GET(request: Request) {
   const auth = await requireApiUser();
@@ -44,11 +52,11 @@ export async function GET(request: Request) {
     if (endDate) (where.createdAt as Record<string, unknown>).lte = new Date(`${endDate}T23:59:59`);
   }
 
-  const records = await prisma.dataRecord.findMany({
+  const records = (await prisma.dataRecord.findMany({
     where: where as never,
     orderBy: { createdAt: 'desc' },
-    include: { batch: { include: { createdBy: true } } }
-  }) as unknown as Array<(typeof records)[number] & { sourceDepartment: string | null }>;
+    include: exportInclude
+  })) as ExportRecord[];
   const header = [
     'textId',
     '标题',
