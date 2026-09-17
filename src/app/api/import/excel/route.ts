@@ -87,12 +87,16 @@ export async function POST(request: Request) {
     const currentUser = await prisma.user.findUnique({ where: { id: auth.user.id } });
     if (!currentUser) return NextResponse.json({ code: 50000, message: '未找到当前用户' }, { status: 500 });
 
+    // 来源部门：Excel 导入是网页端操作，取登录用户的部门
+    const sourceDepartment = auth.user.department?.trim() || currentUser.department?.trim() || null;
+
     const batchNo = generateBatchNo();
     const batch = await prisma.dataBatch.create({
       data: {
         batchNo,
         importType: 'EXCEL',
         sourceFileName: file.name,
+        sourceDepartment,
         totalCount: importedRows.length,
         validCount: 0,
         invalidCount: 0,
@@ -176,6 +180,7 @@ export async function POST(request: Request) {
             praiseNum: normalized.praiseNum,
             viewNum: normalized.viewNum,
             tendency,
+            sourceDepartment,
             rawSourceText: JSON.stringify(item.raw),
             sourceRowNo: item.rowNo,
             recordStatus: 'PENDING_PUSH'
@@ -203,6 +208,7 @@ export async function POST(request: Request) {
           praiseNum: normalized.praiseNum,
           viewNum: normalized.viewNum,
           tendency,
+          sourceDepartment,
           rawSourceText: JSON.stringify(item.raw),
           sourceRowNo: item.rowNo,
           recordStatus: 'PENDING_PUSH',

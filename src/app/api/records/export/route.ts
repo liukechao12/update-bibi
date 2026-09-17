@@ -17,6 +17,7 @@ export async function GET(request: Request) {
   const originType = searchParams.get('originType') ?? '';
   const keyword = searchParams.get('keyword') ?? '';
   const submitter = searchParams.get('submitter') ?? '';
+  const sourceDepartment = searchParams.get('sourceDepartment') ?? '';
   const startDate = searchParams.get('startDate') ?? '';
   const endDate = searchParams.get('endDate') ?? '';
 
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
   }
   if (status) where.recordStatus = status;
   if (originType) where.originType = originType;
+  if (sourceDepartment) where.sourceDepartment = sourceDepartment;
   if (submitter && auth.user.roles?.includes('SUPER_ADMIN')) {
     where.createdById = submitter;
   } else if (!auth.user.roles?.includes('SUPER_ADMIN')) {
@@ -53,6 +55,7 @@ export async function GET(request: Request) {
     '标题',
     '作者',
     '来源',
+    '来源部门',
     '状态',
     '评论数',
     '转发数',
@@ -71,6 +74,7 @@ export async function GET(request: Request) {
     record.title,
     record.author,
     labelOrValue(originTypeLabelMap, record.originType),
+    record.sourceDepartment ?? '',
     labelOrValue(recordStatusLabelMap, record.recordStatus),
     record.commentNum,
     record.forwardNum ?? '',

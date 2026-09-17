@@ -74,6 +74,7 @@ export default async function RecordDetailPage({ params }: { params: Promise<{ i
             <tbody>
               <tr><th>状态</th><td>{labelOrValue(recordStatusLabelMap, record.recordStatus)}</td></tr>
               <tr><th>是否重复</th><td>{record.isDuplicate ? '是' : '否'}</td></tr>
+              <tr><th>来源部门</th><td>{record.sourceDepartment ?? '-'}</td></tr>
               <tr><th>所属批次</th><td>{record.batch ? <Link href={`/batches/${record.batch.id}`}>{record.batch.batchNo}</Link> : '-'}</td></tr>
               <tr><th>提交人</th><td>{record.createdBy?.displayName ?? '-'}</td></tr>
               <tr><th>创建时间</th><td>{formatBeijingTime(record.createdAt)}</td></tr>

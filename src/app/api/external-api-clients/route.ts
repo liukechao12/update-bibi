@@ -30,6 +30,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const clientCode = String(body?.clientCode ?? '').trim();
   const clientName = String(body?.clientName ?? '').trim();
+  const department = typeof body?.department === 'string' ? body.department.trim() || null : null;
   const allowAllEvents = Boolean(body?.allowAllEvents);
   const rateLimitPerMinute = Math.max(1, Number(body?.rateLimitPerMinute ?? 60) || 60);
   const expiresAtRaw = String(body?.expiresAt ?? '').trim();
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
     data: {
       clientCode,
       clientName,
+      department,
       apiKeyHash: hashApiKey(apiKey),
       status: 'ACTIVE',
       allowAllEvents,

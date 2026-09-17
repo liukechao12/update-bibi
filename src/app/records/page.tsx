@@ -15,6 +15,7 @@ type SearchParams = {
   status?: string;
   originType?: string;
   submitter?: string;
+  sourceDepartment?: string;
   startDate?: string;
   endDate?: string;
 };
@@ -33,6 +34,7 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
   const page = Math.max(1, Number(resolvedSearchParams.page ?? '1') || 1);
   const keyword = resolvedSearchParams.keyword?.trim() ?? '';
   const submitter = resolvedSearchParams.submitter?.trim() ?? '';
+  const sourceDepartment = resolvedSearchParams.sourceDepartment?.trim() ?? '';
   // URL 未指定状态时默认只看待推送（与页面表单默认值一致），避免无过滤条件时扫全表
   const statusFilter = !(resolvedSearchParams.status ?? 'PENDING_PUSH') || (resolvedSearchParams.status ?? 'PENDING_PUSH') === 'ALL' ? '' : (resolvedSearchParams.status ?? 'PENDING_PUSH');
 
@@ -41,12 +43,23 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
     orderBy: { displayName: 'asc' }
   });
 
+  // 加载已有的来源部门用于筛选下拉
+  const departmentStats = await prisma.dataRecord.groupBy({
+    by: ['sourceDepartment'],
+    _count: { _all: true },
+    where: { sourceDepartment: { not: null } },
+    orderBy: { sourceDepartment: 'asc' }
+  }).catch(() => []);
+
   const where: Prisma.DataRecordWhereInput = {};
   if (!user.roles?.includes('SUPER_ADMIN')) {
     where.createdById = user.id;
   }
   if (submitter && user.roles?.includes('SUPER_ADMIN')) {
     where.createdById = submitter;
+  }
+  if (sourceDepartment) {
+    where.sourceDepartment = sourceDepartment;
   }
   if (keyword) {
     where.OR = [
@@ -87,6 +100,7 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
       recordStatus: true,
       isDuplicate: true,
       batchId: true,
+      sourceDepartment: true,
       createdAt: true,
       batch: { select: { batchNo: true, createdBy: { select: { displayName: true } } } }
     }
@@ -109,6 +123,7 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
     if (resolvedSearchParams.status) params.set('status', resolvedSearchParams.status);
     if (resolvedSearchParams.originType) params.set('originType', resolvedSearchParams.originType);
     if (resolvedSearchParams.submitter) params.set('submitter', resolvedSearchParams.submitter);
+    if (resolvedSearchParams.sourceDepartment) params.set('sourceDepartment', resolvedSearchParams.sourceDepartment);
     if (resolvedSearchParams.startDate) params.set('startDate', resolvedSearchParams.startDate);
     if (resolvedSearchParams.endDate) params.set('endDate', resolvedSearchParams.endDate);
     if (pageSize === 'all') {
@@ -126,6 +141,7 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
     if (resolvedSearchParams.status && resolvedSearchParams.status !== 'ALL') params.set('status', resolvedSearchParams.status);
     if (resolvedSearchParams.originType) params.set('originType', resolvedSearchParams.originType);
     if (resolvedSearchParams.submitter) params.set('submitter', resolvedSearchParams.submitter);
+    if (resolvedSearchParams.sourceDepartment) params.set('sourceDepartment', resolvedSearchParams.sourceDepartment);
     if (resolvedSearchParams.startDate) params.set('startDate', resolvedSearchParams.startDate);
     if (resolvedSearchParams.endDate) params.set('endDate', resolvedSearchParams.endDate);
     return `/api/records/export?${params.toString()}`;
@@ -137,6 +153,7 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
     if (resolvedSearchParams.status) params.set('status', resolvedSearchParams.status);
     if (resolvedSearchParams.originType) params.set('originType', resolvedSearchParams.originType);
     if (resolvedSearchParams.submitter) params.set('submitter', resolvedSearchParams.submitter);
+    if (resolvedSearchParams.sourceDepartment) params.set('sourceDepartment', resolvedSearchParams.sourceDepartment);
     if (resolvedSearchParams.startDate) params.set('startDate', resolvedSearchParams.startDate);
     if (resolvedSearchParams.endDate) params.set('endDate', resolvedSearchParams.endDate);
     if (pageSize === 'all') params.set('pageSize', 'all');
@@ -161,6 +178,7 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
     recordStatus: record.recordStatus,
     isDuplicate: record.isDuplicate,
     batchId: record.batchId,
+    sourceDepartment: record.sourceDepartment ?? null,
     batchNo: record.batch?.batchNo ?? null,
     createdByName: record.batch?.createdBy?.displayName ?? null,
     createdAt: formatBeijingTime(record.createdAt)
@@ -211,11 +229,19 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
             <option value="all">全部查看</option>
           </select>
         </div>
-        <div className="grid grid-3" style={{ marginTop: 12 }}>
+        <div className="grid grid-4" style={{ marginTop: 12 }}>
           <select className="select" name="submitter" defaultValue={resolvedSearchParams.submitter ?? ''}>
             <option value="">全部提交人</option>
             {users.map((item) => (
               <option key={item.id} value={item.id}>{item.displayName}</option>
+            ))}
+          </select>
+          <select className="select" name="sourceDepartment" defaultValue={resolvedSearchParams.sourceDepartment ?? ''}>
+            <option value="">全部来源部门（媒体/社交）</option>
+            {departmentStats.map((item) => (
+              <option key={item.sourceDepartment!} value={item.sourceDepartment!}>
+                {item.sourceDepartment}（{item._count._all} 条）
+              </option>
             ))}
           </select>
           <input className="input" type="date" name="startDate" defaultValue={resolvedSearchParams.startDate ?? ''} />

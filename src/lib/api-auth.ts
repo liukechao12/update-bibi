@@ -17,7 +17,8 @@ export async function requireApiUser(request?: Request) {
           id: user.id,
           username: user.username,
           displayName: user.displayName,
-          department: user.department,
+          // 插件调用时：优先使用 ExternalApiClient 上设置的部门，其次回退到创建者 User 的部门
+          department: client.department ?? user.department,
           accountType: user.accountType,
           roles: user.roles.map((item) => item.role.roleCode),
           sessionId: user.currentSessionId

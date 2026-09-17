@@ -102,6 +102,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ code: 40400, message: '用户不存在' }, { status: 404 });
   }
 
+  // 来源部门：优先取 auth.user.department（插件调用时已替换为 ExternalApiClient.department）
+  const sourceDepartment = auth.user.department?.trim() || currentUser.department?.trim() || null;
+
   const missingForResponse = selectedTendency
     ? missing.map((item) => ({ ...item, missing: item.missing.filter((field) => field !== '倾向性') }))
     : missing;
@@ -193,6 +196,7 @@ export async function POST(request: Request) {
     data: {
       batchNo: generateBatchNo(),
       importType: 'PASTE',
+      sourceDepartment,
       totalCount: uniqueRecords.length,
       validCount: uniqueRecords.length,
       invalidCount: 0,
@@ -250,6 +254,7 @@ export async function POST(request: Request) {
           praiseNum: record.praiseNum,
           viewNum: record.viewNum,
           tendency,
+          sourceDepartment,
           recordStatus: 'PENDING_PUSH',
           rawSourceText,
           sourceRowNo: uniqueSourceIndexes[index] + 1
@@ -277,6 +282,7 @@ export async function POST(request: Request) {
         praiseNum: record.praiseNum,
         viewNum: record.viewNum,
         tendency,
+        sourceDepartment,
         recordStatus: 'PENDING_PUSH',
         createdById: currentUser.id,
         rawSourceText,

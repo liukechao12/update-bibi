@@ -22,6 +22,7 @@ type RecordItem = {
   submitterName?: string | null;
   isDuplicate: boolean;
   batchId: string | null;
+  sourceDepartment: string | null;
   batchNo: string | null;
   createdByName: string | null;
   createdAt: string;
@@ -289,7 +290,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <table className="table" style={{ minWidth: 1400, tableLayout: 'fixed' }}>
+        <table className="table" style={{ minWidth: 1540, tableLayout: 'fixed' }}>
           <colgroup>
             <col style={{ width: 44 }} />
             <col style={{ width: 44 }} />
@@ -297,11 +298,12 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
             <col style={{ width: 300 }} />
             <col style={{ width: 140 }} />
             <col style={{ width: 120 }} />
+            <col style={{ width: 110 }} />
             <col style={{ width: 170 }} />
             <col style={{ width: 120 }} />
             <col style={{ width: 150 }} />
+            <col style={{ width: 120 }} />
             <col style={{ width: 150 }} />
-            <col style={{ width: 160 }} />
             <col style={{ width: 120 }} />
           </colgroup>
           <thead>
@@ -312,6 +314,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
               <th>标题</th>
               <th>作者</th>
               <th>来源</th>
+              <th>来源部门</th>
               <th>互动数据</th>
               <th>状态</th>
               <th>批次</th>
@@ -322,7 +325,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
           </thead>
           <tbody>
             {records.length === 0 ? (
-              <tr><td colSpan={12} style={{ textAlign: 'center' }}>暂无数据</td></tr>
+              <tr><td colSpan={13} style={{ textAlign: 'center' }}>暂无数据</td></tr>
             ) : records.map((record) => {
               const open = openRows.includes(record.id);
               const canPush = record.recordStatus === 'PENDING_PUSH' || record.recordStatus === 'VALIDATED' || record.recordStatus === 'FAILED';
@@ -355,6 +358,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
                     <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.title}</td>
                     <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.author}</td>
                     <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{labelOrValue(originTypeLabelMap, record.originType)}</td>
+                    <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.sourceDepartment || '-'}</td>
                     <td style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       评论 {record.commentNum} · 转发 {record.forwardNum ?? 0} · 点赞 {record.praiseNum ?? 0} · 阅读 {record.viewNum ?? 0}
                     </td>
@@ -401,7 +405,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
 
                   {open ? (
                     <tr>
-                      <td colSpan={12} style={{ background: '#f8fafc', padding: 20 }}>
+                      <td colSpan={13} style={{ background: '#f8fafc', padding: 20 }}>
                         <div className="grid grid-2" style={{ gap: 20 }}>
                           <div>
                             <h3 style={{ margin: '0 0 8px' }}>解析保存内容</h3>
@@ -411,6 +415,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
                                 <tr><th>标题</th><td>{record.title}</td></tr>
                                 <tr><th>作者</th><td>{record.author}</td></tr>
                                 <tr><th>来源</th><td>{labelOrValue(originTypeLabelMap, record.originType)}（{record.originType}）</td></tr>
+                                <tr><th>来源部门</th><td>{record.sourceDepartment || '-'}</td></tr>
                                 <tr><th>链接</th><td><a href={record.url} target="_blank" rel="noreferrer">{record.url}</a></td></tr>
                                 <tr><th>发布时间</th><td>{record.publishTime}</td></tr>
                                 <tr><th>评论数</th><td>{record.commentNum}</td></tr>

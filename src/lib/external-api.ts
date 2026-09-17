@@ -8,7 +8,7 @@ const DEFAULT_PAGE_SIZE = 50;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 
 type AuthResult =
-  | { client: { id: string; clientCode: string; clientName: string; status: 'ACTIVE' | 'DISABLED'; allowAllEvents: boolean; rateLimitPerMinute: number; expiresAt: Date | null; lastUsedAt: Date | null; createdById: string }; error?: never }
+  | { client: { id: string; clientCode: string; clientName: string; department: string | null; status: 'ACTIVE' | 'DISABLED'; allowAllEvents: boolean; rateLimitPerMinute: number; expiresAt: Date | null; lastUsedAt: Date | null; createdById: string }; error?: never }
   | { error: NextResponse };
 
 export function hashApiKey(apiKey: string) {
@@ -78,6 +78,7 @@ export async function requireExternalApiClient(request: Request): Promise<AuthRe
       id: client.id,
       clientCode: client.clientCode,
       clientName: client.clientName,
+      department: client.department ?? null,
       status: client.status,
       allowAllEvents: client.allowAllEvents,
       rateLimitPerMinute: client.rateLimitPerMinute,
