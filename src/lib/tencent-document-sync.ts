@@ -6,7 +6,6 @@ import { pushRequestSchema } from '@/lib/schemas';
 import type { PushRecordInput } from '@/lib/schemas';
 import { pushExistingRecords } from '@/lib/push-workflow';
 import { syncDailyCollectionEvents } from '@/lib/daily-event-sync';
-import { generateBatchNo } from '@/lib/business-no';
 
 export type DocumentSyncTrigger = 'MANUAL' | 'SCHEDULED';
 
@@ -84,7 +83,7 @@ export async function runTencentDocumentSync(triggerType: DocumentSyncTrigger) {
     const user = await prisma.user.findFirst({ where: { status: 'ACTIVE' }, orderBy: { createdAt: 'asc' } });
     if (!user) throw new Error('未找到启用用户');
 
-    const batch = await prisma.dataBatch.create({ data: { batchNo: generateBatchNo('TENCENT'), importType: 'EXCEL', totalCount: rows.length, validCount: 0, invalidCount: 0, createdById: user.id, status: 'VALIDATING', remark: '腾讯文档在线表格同步' } });
+    const batch = await prisma.dataBatch.create({ data: { batchNo: `TENCENT-${Date.now()}`, importType: 'EXCEL', totalCount: rows.length, validCount: 0, invalidCount: 0, createdById: user.id, status: 'VALIDATING', remark: '腾讯文档在线表格同步' } });
     const affected: Affected[] = [];
     const invalidRows: Array<{ rowNo: number; reason: string }> = [];
     let createdCount = 0;

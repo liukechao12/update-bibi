@@ -243,53 +243,55 @@ export default function MediaLibraryClient({ mediaLibraries, users, labelMaps, s
           </form>
         ) : null}
 
-        <table className="table">
-          <thead>
-            <tr>
-              <th>名称</th>
-              <th>域名</th>
-              <th>作者名称</th>
-              <th>来源类型</th>
-              <th>发布类型</th>
-              <th>作者类型</th>
-              <th>优先级</th>
-              <th>状态</th>
-              <th>创建人</th>
-              <th>时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredList.length === 0 ? (
-              <tr><td colSpan={11} style={{ textAlign: 'center' }}>暂无数据</td></tr>
-            ) : (
-              filteredList.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.name}</td>
-                  <td>{item.domain || '-'}</td>
-                  <td>{item.authorName || '-'}</td>
-                  <td>{labelMaps.originTypeLabelMap[item.originType] ?? item.originType}</td>
-                  <td>{labelMaps.publisherTypeLabelMap[item.publisherType] ?? item.publisherType}</td>
-                  <td>{labelMaps.authorTypeLabelMap[item.authorType] ?? item.authorType}</td>
-                  <td>{item.priority}</td>
-                  <td>{labelMaps.mediaRuleStatusLabelMap[item.status] ?? item.status}</td>
-                  <td>{item.createdByName}</td>
-                  <td>{item.createdAt}</td>
-                  <td>
-                    <div className="stack">
-                      <button className="button secondary" type="button" onClick={() => { resetForm(item); setShowForm(true); }}>
-                        编辑
-                      </button>
-                      <button className="button secondary" type="button" onClick={() => handleDelete(item.id)}>
-                        删除
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>域名</th>
+                <th>作者名称</th>
+                <th>来源类型</th>
+                <th>发布类型</th>
+                <th>作者类型</th>
+                <th>优先级</th>
+                <th>状态</th>
+                <th>创建人</th>
+                <th>时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredList.length === 0 ? (
+                <tr><td colSpan={11} style={{ textAlign: 'center' }}>暂无数据</td></tr>
+              ) : (
+                filteredList.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.name}</td>
+                    <td>{item.domain || '-'}</td>
+                    <td>{item.authorName || '-'}</td>
+                    <td>{labelMaps.originTypeLabelMap[item.originType] ?? item.originType}</td>
+                    <td>{labelMaps.publisherTypeLabelMap[item.publisherType] ?? item.publisherType}</td>
+                    <td>{labelMaps.authorTypeLabelMap[item.authorType] ?? item.authorType}</td>
+                    <td>{item.priority}</td>
+                    <td>{labelMaps.mediaRuleStatusLabelMap[item.status] ?? item.status}</td>
+                    <td>{item.createdByName}</td>
+                    <td>{item.createdAt}</td>
+                    <td>
+                      <div className="stack">
+                        <button className="button secondary" type="button" onClick={() => { resetForm(item); setShowForm(true); }}>
+                          编辑
+                        </button>
+                        <button className="button secondary" type="button" onClick={() => handleDelete(item.id)}>
+                          删除
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
 
         <div className="stack" style={{ marginTop: 16, justifyContent: 'space-between' }}>
           <span className="helper">共 {total} 条 · 第 {page} / {totalPages} 页</span>

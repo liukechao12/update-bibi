@@ -117,50 +117,52 @@ export default async function BatchDetailPage({ params }: { params: Promise<{ id
           {batch.pushJobs.length === 0 ? (
             <p className="helper">暂无推送任务</p>
           ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>任务号</th>
-                  <th>状态</th>
-                  <th>成功</th>
-                  <th>失败</th>
-                  <th>HTTP</th>
-                  <th>失败原因</th>
-                </tr>
-              </thead>
-              <tbody>
-                {batch.pushJobs.map((job) => {
-                  const reason = resolveFailureReason(job.responseBody);
-                  const timeout = isTimeoutReason(reason);
-                  return (
-                    <tr key={job.id} style={timeout ? { background: '#fff5f5' } : undefined}>
-                      <td style={{ whiteSpace: 'nowrap' }}>{job.jobNo}</td>
-                      <td>
-                        <span style={{
-                          background: timeout ? '#fdeaea' : job.status === 'FAILED' ? '#fbeaec' : '#f1f4f9',
-                          color: timeout ? '#b42318' : job.status === 'FAILED' ? '#c0262d' : '#6b7a90',
-                          padding: '4px 10px',
-                          borderRadius: 999,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          whiteSpace: 'nowrap',
-                          lineHeight: 1,
-                          minHeight: 28
-                        }}>
-                          {labelOrValue(pushJobStatusLabelMap, job.status)}
-                        </span>
-                      </td>
-                      <td>{job.insertedCount}</td>
-                      <td>{job.failedCount}</td>
-                      <td>{job.httpStatus ?? '-'}</td>
-                      <td style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: timeout ? '#b42318' : 'inherit' }} title={reason === '-' ? undefined : reason}>{reason}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>任务号</th>
+                    <th>状态</th>
+                    <th>成功</th>
+                    <th>失败</th>
+                    <th>HTTP</th>
+                    <th>失败原因</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batch.pushJobs.map((job) => {
+                    const reason = resolveFailureReason(job.responseBody);
+                    const timeout = isTimeoutReason(reason);
+                    return (
+                      <tr key={job.id} style={timeout ? { background: '#fff5f5' } : undefined}>
+                        <td style={{ whiteSpace: 'nowrap' }}>{job.jobNo}</td>
+                        <td>
+                          <span style={{
+                            background: timeout ? '#fdeaea' : job.status === 'FAILED' ? '#fbeaec' : '#f1f4f9',
+                            color: timeout ? '#b42318' : job.status === 'FAILED' ? '#c0262d' : '#6b7a90',
+                            padding: '4px 10px',
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            whiteSpace: 'nowrap',
+                            lineHeight: 1,
+                            minHeight: 28
+                          }}>
+                            {labelOrValue(pushJobStatusLabelMap, job.status)}
+                          </span>
+                        </td>
+                        <td>{job.insertedCount}</td>
+                        <td>{job.failedCount}</td>
+                        <td>{job.httpStatus ?? '-'}</td>
+                        <td style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: timeout ? '#b42318' : 'inherit' }} title={reason === '-' ? undefined : reason}>{reason}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>
@@ -186,80 +188,84 @@ export default async function BatchDetailPage({ params }: { params: Promise<{ id
       {failedItems.length > 0 ? (
         <div className="card" style={{ padding: 20, marginTop: 20 }}>
           <h2 className="section-title">失败明细</h2>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>任务号</th>
-                <th>记录ID</th>
-                <th>状态</th>
-                <th>供应商响应码</th>
-                <th>失败原因</th>
-              </tr>
-            </thead>
-            <tbody>
-              {failedItems.map((item, index) => (
-                <tr key={index} style={item.errorMessage.includes('超时') ? { background: '#fff5f5' } : undefined}>
-                  <td>{item.jobNo}</td>
-                  <td>{item.recordId}</td>
-                  <td>{item.status}</td>
-                  <td>{item.vendorResponseCode}</td>
-                  <td style={{ color: item.errorMessage.includes('超时') ? '#b42318' : 'inherit' }}>{item.errorMessage}</td>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>任务号</th>
+                  <th>记录ID</th>
+                  <th>状态</th>
+                  <th>供应商响应码</th>
+                  <th>失败原因</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {failedItems.map((item, index) => (
+                  <tr key={index} style={item.errorMessage.includes('超时') ? { background: '#fff5f5' } : undefined}>
+                    <td>{item.jobNo}</td>
+                    <td>{item.recordId}</td>
+                    <td>{item.status}</td>
+                    <td>{item.vendorResponseCode}</td>
+                    <td style={{ color: item.errorMessage.includes('超时') ? '#b42318' : 'inherit' }}>{item.errorMessage}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : null}
 
       <div className="card" style={{ padding: 20, marginTop: 20 }}>
         <h2 className="section-title">记录明细</h2>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>textId</th>
-              <th>标题</th>
-              <th>作者</th>
-              <th>来源</th>
-              <th>状态</th>
-              <th>推送结果</th>
-            </tr>
-          </thead>
-          <tbody>
-            {batch.records.map((record) => {
-              const items = record.pushItems;
-              const hasFailed = items.some((item) => item.status !== 'SUCCESS');
-              const allSuccess = items.length > 0 && items.every((item) => item.status === 'SUCCESS');
-              const tone = recordStatusTone(record.recordStatus);
-              const pushTone = allSuccess
-                ? { bg: '#eaf7ef', color: '#0f9d58' }
-                : hasFailed
-                  ? { bg: '#fdeaea', color: '#d14343' }
-                  : { bg: '#f1f4f9', color: '#6b7a90' };
-              const pushLabel = allSuccess ? '成功' : hasFailed ? '失败' : '未推送';
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>textId</th>
+                <th>标题</th>
+                <th>作者</th>
+                <th>来源</th>
+                <th>状态</th>
+                <th>推送结果</th>
+              </tr>
+            </thead>
+            <tbody>
+              {batch.records.map((record) => {
+                const items = record.pushItems;
+                const hasFailed = items.some((item) => item.status !== 'SUCCESS');
+                const allSuccess = items.length > 0 && items.every((item) => item.status === 'SUCCESS');
+                const tone = recordStatusTone(record.recordStatus);
+                const pushTone = allSuccess
+                  ? { bg: '#eaf7ef', color: '#0f9d58' }
+                  : hasFailed
+                    ? { bg: '#fdeaea', color: '#d14343' }
+                    : { bg: '#f1f4f9', color: '#6b7a90' };
+                const pushLabel = allSuccess ? '成功' : hasFailed ? '失败' : '未推送';
 
-              return (
-                <tr key={record.id}>
-                  <td>
-                    <Link href={`/records/${record.id}`}>{record.textId}</Link>
-                  </td>
-                  <td>{record.title.slice(0, 40)}{record.title.length > 40 ? '...' : ''}</td>
-                  <td>{record.author}</td>
-                  <td>{record.originType}</td>
-                  <td>
-                    <span style={{ background: tone.bg, color: tone.color, padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
-                      {labelOrValue(recordStatusLabelMap, record.recordStatus)}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{ background: pushTone.bg, color: pushTone.color, padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
-                      {pushLabel}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                return (
+                  <tr key={record.id}>
+                    <td>
+                      <Link href={`/records/${record.id}`}>{record.textId}</Link>
+                    </td>
+                    <td>{record.title.slice(0, 40)}{record.title.length > 40 ? '...' : ''}</td>
+                    <td>{record.author}</td>
+                    <td>{record.originType}</td>
+                    <td>
+                      <span style={{ background: tone.bg, color: tone.color, padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
+                        {labelOrValue(recordStatusLabelMap, record.recordStatus)}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ background: pushTone.bg, color: pushTone.color, padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
+                        {pushLabel}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {batch.pushJobs.some((job) => job.responseBody) ? (

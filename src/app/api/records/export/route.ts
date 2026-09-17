@@ -48,8 +48,7 @@ export async function GET(request: Request) {
     where: where as never,
     orderBy: { createdAt: 'desc' },
     include: { batch: { include: { createdBy: true } } }
-  });
-
+  }) as unknown as Array<(typeof records)[number] & { sourceDepartment: string | null }>;
   const header = [
     'textId',
     '标题',

@@ -85,43 +85,45 @@ export default async function ExternalApiLogsPage({ searchParams }: { searchPara
       </form>
 
       <div className="card" style={{ padding: 20 }}>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>时间</th>
-              <th>客户</th>
-              <th>方法</th>
-              <th>路径</th>
-              <th>IP</th>
-              <th>状态码</th>
-              <th>返回条数</th>
-              <th>耗时</th>
-              <th>请求参数</th>
-            </tr>
-          </thead>
-          <tbody>
-            {logs.length === 0 ? (
-              <tr><td colSpan={9} style={{ textAlign: 'center' }}>暂无日志</td></tr>
-            ) : logs.map((item) => (
-              <tr key={item.id}>
-                <td>{formatBeijingTime(item.createdAt)}</td>
-                <td>{item.client.clientCode} / {item.client.clientName}</td>
-                <td>{item.method}</td>
-                <td>{item.path}</td>
-                <td>{item.requestIp || '-'}</td>
-                <td>{item.responseCode}</td>
-                <td>{item.responseCount}</td>
-                <td>{item.costMs}ms</td>
-                <td>
-                  <details>
-                    <summary>查看</summary>
-                    <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>{JSON.stringify(item.requestQuery, null, 2)}</pre>
-                  </details>
-                </td>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>客户</th>
+                <th>方法</th>
+                <th>路径</th>
+                <th>IP</th>
+                <th>状态码</th>
+                <th>返回条数</th>
+                <th>耗时</th>
+                <th>请求参数</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {logs.length === 0 ? (
+                <tr><td colSpan={9} style={{ textAlign: 'center' }}>暂无日志</td></tr>
+              ) : logs.map((item) => (
+                <tr key={item.id}>
+                  <td>{formatBeijingTime(item.createdAt)}</td>
+                  <td>{item.client.clientCode} / {item.client.clientName}</td>
+                  <td>{item.method}</td>
+                  <td>{item.path}</td>
+                  <td>{item.requestIp || '-'}</td>
+                  <td>{item.responseCode}</td>
+                  <td>{item.responseCount}</td>
+                  <td>{item.costMs}ms</td>
+                  <td>
+                    <details>
+                      <summary>查看</summary>
+                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>{JSON.stringify(item.requestQuery, null, 2)}</pre>
+                    </details>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
         <div className="stack" style={{ marginTop: 16, justifyContent: 'space-between' }}>
           <span className="helper">共 {total} 条 · 第 {page} / {totalPages} 页</span>

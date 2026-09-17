@@ -289,7 +289,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
         </div>
       </div>
 
-      <div style={{ overflowX: 'auto' }}>
+      <div className="table-wrap">
         <table className="table" style={{ minWidth: 1540, tableLayout: 'fixed' }}>
           <colgroup>
             <col style={{ width: 44 }} />

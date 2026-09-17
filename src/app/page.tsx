@@ -152,26 +152,28 @@ export default async function DashboardPage() {
 
       <section className="card" style={{ padding: 20, marginTop: 20 }}>
         <h2 className="section-title">昨日对比</h2>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>指标</th>
-              <th>今日</th>
-              <th>昨日</th>
-              <th>变化</th>
-            </tr>
-          </thead>
-          <tbody>
-            {activitySummary.map((item) => (
-              <tr key={item.label}>
-                <td>{item.label}</td>
-                <td>{item.today}</td>
-                <td>{item.yesterday}</td>
-                <td>{item.delta}</td>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>指标</th>
+                <th>今日</th>
+                <th>昨日</th>
+                <th>变化</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {activitySummary.map((item) => (
+                <tr key={item.label}>
+                  <td>{item.label}</td>
+                  <td>{item.today}</td>
+                  <td>{item.yesterday}</td>
+                  <td>{item.delta}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="grid grid-2" style={{ marginTop: 20 }}>
@@ -180,32 +182,34 @@ export default async function DashboardPage() {
             <h2 className="section-title" style={{ margin: 0 }}>最近批次</h2>
             <Link className="button secondary" href="/batches">查看全部</Link>
           </div>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>批次号</th>
-                <th>提交人</th>
-                <th>方式</th>
-                <th>状态</th>
-                <th>记录数</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentBatches.length === 0 ? (
-                <tr><td colSpan={5} style={{ textAlign: 'center' }}>暂无数据</td></tr>
-              ) : recentBatches.map((batch) => (
-                <tr key={batch.id}>
-                  <td>
-                    <Link href={`/batches/${batch.id}`}>{batch.batchNo}</Link>
-                  </td>
-                  <td>{batch.createdBy?.displayName ?? '-'}</td>
-                  <td>{batch.importType}</td>
-                  <td>{batch.status}</td>
-                  <td>{batch._count.records}</td>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>批次号</th>
+                  <th>提交人</th>
+                  <th>方式</th>
+                  <th>状态</th>
+                  <th>记录数</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {recentBatches.length === 0 ? (
+                  <tr><td colSpan={5} style={{ textAlign: 'center' }}>暂无数据</td></tr>
+                ) : recentBatches.map((batch) => (
+                  <tr key={batch.id}>
+                    <td>
+                      <Link href={`/batches/${batch.id}`}>{batch.batchNo}</Link>
+                    </td>
+                    <td>{batch.createdBy?.displayName ?? '-'}</td>
+                    <td>{batch.importType}</td>
+                    <td>{batch.status}</td>
+                    <td>{batch._count.records}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div className="card" style={{ padding: 20 }}>
@@ -213,32 +217,34 @@ export default async function DashboardPage() {
             <h2 className="section-title" style={{ margin: 0 }}>最近推送</h2>
             <Link className="button secondary" href="/push-jobs">查看全部</Link>
           </div>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>任务号</th>
-                <th>提交人</th>
-                <th>状态</th>
-                <th>成功</th>
-                <th>失败</th>
-                <th>时间</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentJobs.length === 0 ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center' }}>暂无数据</td></tr>
-              ) : recentJobs.map((job) => (
-                <tr key={job.id}>
-                  <td>{job.jobNo}</td>
-                  <td>{job.createdBy?.displayName ?? '-'}</td>
-                  <td>{job.status}</td>
-                  <td>{job.insertedCount}</td>
-                  <td>{job.failedCount}</td>
-                  <td>{formatBeijingTime(job.createdAt)}</td>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>任务号</th>
+                  <th>提交人</th>
+                  <th>状态</th>
+                  <th>成功</th>
+                  <th>失败</th>
+                  <th>时间</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {recentJobs.length === 0 ? (
+                  <tr><td colSpan={6} style={{ textAlign: 'center' }}>暂无数据</td></tr>
+                ) : recentJobs.map((job) => (
+                  <tr key={job.id}>
+                    <td>{job.jobNo}</td>
+                    <td>{job.createdBy?.displayName ?? '-'}</td>
+                    <td>{job.status}</td>
+                    <td>{job.insertedCount}</td>
+                    <td>{job.failedCount}</td>
+                    <td>{formatBeijingTime(job.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
     </main>

@@ -167,7 +167,6 @@ model DataBatch {
   successCount    Int          @default(0)
   failCount       Int          @default(0)
   status          BatchStatus  @default(CREATED)
-  sourceDepartment String?
   createdById     String
   createdAt       DateTime     @default(now())
   pushedAt        DateTime?
@@ -179,7 +178,6 @@ model DataBatch {
 
   @@index([createdById, createdAt])
   @@index([status, createdAt])
-  @@index([sourceDepartment, createdAt])
 }
 
 model DataRecord {
@@ -201,7 +199,6 @@ model DataRecord {
   tendency      String?
   rawSourceText String?       @db.LongText
   sourceRowNo   Int?
-  sourceDepartment String?
   recordStatus  RecordStatus  @default(DRAFT)
   isDuplicate   Boolean       @default(false)
   createdById   String
@@ -216,7 +213,6 @@ model DataRecord {
   @@index([createdAt])
   @@index([originType, publisherType])
   @@index([createdById, createdAt])
-  @@index([sourceDepartment, createdAt])
 }
 
 model PushJob {
@@ -360,7 +356,6 @@ model ExternalApiClient {
   id            String                  @id @default(cuid())
   clientCode    String                  @unique
   clientName    String
-  department    String?
   apiKeyHash    String                  @unique
   status        ExternalApiClientStatus @default(ACTIVE)
   allowAllEvents Boolean                @default(false)
@@ -375,7 +370,6 @@ model ExternalApiClient {
   requestLogs   ExternalApiRequestLog[]
 
   @@index([status, createdAt])
-  @@index([department, createdAt])
 }
 
 model ExternalApiClientEventScope {

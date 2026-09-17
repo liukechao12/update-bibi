@@ -11,7 +11,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
   const clientName = typeof body?.clientName === 'string' ? body.clientName.trim() : undefined;
-  const department = typeof body?.department === 'string' ? body.department.trim() : undefined;
   const status = typeof body?.status === 'string' ? body.status.trim() : undefined;
   const allowAllEvents = typeof body?.allowAllEvents === 'boolean' ? body.allowAllEvents : undefined;
   const rateLimitPerMinute = body?.rateLimitPerMinute === undefined ? undefined : Math.max(1, Number(body.rateLimitPerMinute) || 60);
@@ -48,7 +47,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       where: { id },
       data: {
         ...(clientName !== undefined ? { clientName } : {}),
-        ...(department !== undefined ? { department: department || null } : {}),
         ...(status !== undefined ? { status: status as never } : {}),
         ...(allowAllEvents !== undefined ? { allowAllEvents } : {}),
         ...(rateLimitPerMinute !== undefined ? { rateLimitPerMinute } : {}),

@@ -219,69 +219,71 @@ export default function UserList({ users, roles, keyword, status, roleCode }: { 
           </form>
         ) : null}
 
-        <table className="table">
-          <thead>
-            <tr>
-              <th>用户名</th>
-              <th>显示名称</th>
-              <th>部门/分类</th>
-              <th>状态</th>
-              <th>角色</th>
-              <th>录入数</th>
-              <th>推送数</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {currentUsers.map((user) => (
-              <tr key={user.id}>
-                <td>
-                  <Link href={`/users/${user.id}`}>{user.username}</Link>
-                </td>
-                <td>{user.displayName}</td>
-                <td>{user.department || '-'}</td>
-                <td>{labelOrValue(userStatusLabelMap, user.status)}</td>
-                <td>{user.roleNames.join('、') || '-'}</td>
-                <td>{user.recordsCount}</td>
-                <td>{user.pushJobsCount}</td>
-                <td>
-                  <div className="stack">
-                    <button
-                      className="button secondary"
-                      type="button"
-                      onClick={() => setEditingUser({
-                        id: user.id,
-                        displayName: user.displayName,
-                        department: user.department,
-                        roleCode: user.roles[0] ?? 'USER',
-                        status: user.status
-                      })}
-                      disabled={user.username === 'admin'}
-                    >
-                      编辑
-                    </button>
-                    <button
-                      className="button secondary"
-                      type="button"
-                      onClick={() => toggleStatus(user)}
-                      disabled={user.username === 'admin'}
-                    >
-                      {user.status === 'ACTIVE' ? '禁用' : '启用'}
-                    </button>
-                    <button
-                      className="button secondary"
-                      type="button"
-                      onClick={() => setResetPassword({ id: user.id, password: 'NewPass123!' })}
-                      disabled={user.username === 'admin'}
-                    >
-                      重置密码
-                    </button>
-                  </div>
-                </td>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>用户名</th>
+                <th>显示名称</th>
+                <th>部门/分类</th>
+                <th>状态</th>
+                <th>角色</th>
+                <th>录入数</th>
+                <th>推送数</th>
+                <th>操作</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {currentUsers.map((user) => (
+                <tr key={user.id}>
+                  <td>
+                    <Link href={`/users/${user.id}`}>{user.username}</Link>
+                  </td>
+                  <td>{user.displayName}</td>
+                  <td>{user.department || '-'}</td>
+                  <td>{labelOrValue(userStatusLabelMap, user.status)}</td>
+                  <td>{user.roleNames.join('、') || '-'}</td>
+                  <td>{user.recordsCount}</td>
+                  <td>{user.pushJobsCount}</td>
+                  <td>
+                    <div className="stack">
+                      <button
+                        className="button secondary"
+                        type="button"
+                        onClick={() => setEditingUser({
+                          id: user.id,
+                          displayName: user.displayName,
+                          department: user.department,
+                          roleCode: user.roles[0] ?? 'USER',
+                          status: user.status
+                        })}
+                        disabled={user.username === 'admin'}
+                      >
+                        编辑
+                      </button>
+                      <button
+                        className="button secondary"
+                        type="button"
+                        onClick={() => toggleStatus(user)}
+                        disabled={user.username === 'admin'}
+                      >
+                        {user.status === 'ACTIVE' ? '禁用' : '启用'}
+                      </button>
+                      <button
+                        className="button secondary"
+                        type="button"
+                        onClick={() => setResetPassword({ id: user.id, password: 'NewPass123!' })}
+                        disabled={user.username === 'admin'}
+                      >
+                        重置密码
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
         {resetPassword ? (
           <div className="card" style={{ padding: 16, marginTop: 16 }}>
