@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/session';
 import { formatBeijingTime } from '@/lib/time';
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
+import DashboardTabs from '@/components/dashboard-tabs';
 
 function startOfToday() {
   const now = new Date();
@@ -131,6 +132,9 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      <DashboardTabs
+        overview={
+          <>
       <section className="grid grid-4">
         {todayKpis.map((item) => (
           <div className="card kpi" key={item.label}>
@@ -247,6 +251,9 @@ export default async function DashboardPage() {
           </div>
         </div>
       </section>
+          </>
+        }
+      />
     </main>
   );
 }

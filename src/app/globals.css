@@ -663,3 +663,72 @@ select {
     overflow-x: auto;
   }
 }
+
+/* ===== 首页 Tab 切换 ===== */
+.home-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 20px;
+  flex-wrap: wrap;
+}
+
+.home-tab {
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.home-tab:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.home-tab.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* ===== 微博热点关键词高亮 ===== */
+mark.hot-keyword {
+  background: #ffe08a;
+  color: #7a2d00;
+  font-weight: 700;
+  padding: 0 3px;
+  border-radius: 4px;
+}
+
+.table tr.hot-matched td {
+  background: #fff8e6;
+}
+
+.badge.hot-label {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+.badge.hot-hit {
+  padding: 3px 10px;
+  font-size: 12px;
+  background: #ffe08a;
+  color: #7a2d00;
+}
+
+.hot-content {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fafafa;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 13px;
+  max-height: 240px;
+  overflow-y: auto;
+}

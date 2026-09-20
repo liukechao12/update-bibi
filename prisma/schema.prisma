@@ -440,3 +440,25 @@ model DocumentSyncLog {
   @@index([startedAt])
   @@index([status, startedAt])
 }
+
+model WeiboHotTopic {
+  id              String   @id @default(cuid())
+  batchAt         DateTime
+  channel         String   @default("热搜")
+  rank            Int
+  word            String
+  note            String?
+  category        String?
+  subjectQuerys   String?
+  labelName       String?
+  hotNum          Int      @default(0)
+  onboardTime     DateTime?
+  content         String?  @db.Text
+  matched         Boolean  @default(false)
+  matchedKeywords String?
+  createdAt       DateTime @default(now())
+
+  @@index([batchAt])
+  @@index([batchAt, channel])
+  @@index([matched, batchAt])
+}
