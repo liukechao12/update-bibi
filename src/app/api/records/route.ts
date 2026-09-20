@@ -214,6 +214,10 @@ export async function POST(request: Request) {
     const tendency = (uniqueTendencies[index] ?? selectedTendency) || null;
     const publishTime = normalizePublishTimeToDate(record.publishTime);
     const rawSourceText = JSON.stringify(sourceText.trim() ? parsedRawRecords[uniqueSourceIndexes[index]] ?? record : record);
+    const sourceRow = rawRecords[uniqueSourceIndexes[index]] as Record<string, unknown> | undefined;
+    const parsedSource = (parsedRawRecords[uniqueSourceIndexes[index]] as { source?: string } | undefined)?.source;
+    const bodySource = typeof sourceRow?.source === 'string' ? sourceRow.source : typeof sourceRow?.['来源'] === 'string' ? String(sourceRow['来源']) : '';
+    const sourceName = (parsedSource ?? '').trim() || bodySource.trim() || null;
     const existing = await prisma.dataRecord.findFirst({
       where: {
         OR: [
@@ -257,6 +261,7 @@ export async function POST(request: Request) {
           sourceDepartment,
           recordStatus: 'PENDING_PUSH',
           rawSourceText,
+          sourceName,
           sourceRowNo: uniqueSourceIndexes[index] + 1
         }
       });
@@ -286,6 +291,7 @@ export async function POST(request: Request) {
         recordStatus: 'PENDING_PUSH',
         createdById: currentUser.id,
         rawSourceText,
+        sourceName,
         sourceRowNo: uniqueSourceIndexes[index] + 1
       }
     });

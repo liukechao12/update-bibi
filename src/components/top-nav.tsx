@@ -13,6 +13,7 @@ const navItems: NavItem[] = [
   { href: '/profile', label: '个人中心', icon: 'profile' },
   { href: '/users', label: '人员管理', icon: 'users', adminOnly: true },
   { href: '/media-libraries', label: '媒体库管理', icon: 'library' },
+  { href: '/media-capabilities', label: '采集能力', icon: 'library' },
   { href: '/external-api-clients', label: '开放API', icon: 'api', adminOnly: true },
   { href: '/external-api-logs', label: 'API日志', icon: 'log', adminOnly: true },
   { href: '/settings', label: '系统配置', icon: 'settings', adminOnly: true }

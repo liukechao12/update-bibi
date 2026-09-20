@@ -184,6 +184,7 @@ export async function POST(request: Request) {
             tendency,
             rawSourceText: JSON.stringify(item.raw),
             sourceRowNo: item.rowNo,
+            sourceName: getField(item.raw, ['来源']) || null,
             recordStatus: 'PENDING_PUSH'
           }
         });
@@ -211,6 +212,7 @@ export async function POST(request: Request) {
           tendency,
           rawSourceText: JSON.stringify(item.raw),
           sourceRowNo: item.rowNo,
+          sourceName: getField(item.raw, ['来源']) || null,
           recordStatus: 'PENDING_PUSH',
           createdById: currentUser.id
         }

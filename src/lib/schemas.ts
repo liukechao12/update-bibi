@@ -22,7 +22,8 @@ export const vendorPushRecordSchema = z.object({
   publisherType: vendorPublisherTypeSchema,
   authorType: vendorAuthorTypeSchema,
   url: z.string().url(),
-  commentNum: z.number().int().nonnegative(),
+  // 客户确认：平台采集不到的互动指标推 null（媒体采集能力表判定）
+  commentNum: z.number().int().nonnegative().nullable(),
   forwardNum: z.number().int().nonnegative().nullable(),
   praiseNum: z.number().int().nonnegative().nullable(),
   viewNum: z.number().int().nonnegative().nullable()

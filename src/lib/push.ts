@@ -5,6 +5,13 @@ import { getPushConfig } from '@/lib/push-config';
 
 export type PushType = 'CREATE' | 'UPDATE';
 
+// 推送给客户前的记录形态：互动指标可能因媒体采集能力被置为 null
+export type OutgoingPushRecord = Omit<PushRecordInput, 'commentNum' | 'forwardNum' | 'praiseNum'> & {
+  commentNum: number | null;
+  forwardNum: number | null;
+  praiseNum: number | null;
+};
+
 function sleep(ms: number, signal?: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     if (signal?.aborted) {
@@ -48,7 +55,7 @@ async function resolveEndpoint(pushType: 'CREATE' | 'UPDATE'): Promise<string> {
   return configured;
 }
 
-export async function buildVendorPushPayload(records: PushRecordInput[], pushType: PushType = 'CREATE') {
+export async function buildVendorPushPayload(records: OutgoingPushRecord[], pushType: PushType = 'CREATE') {
   const config = await getPushConfig();
   const apiVersion = String(config.apiVersion ?? '3').trim() || '3';
 
@@ -80,7 +87,7 @@ export async function buildVendorPushPayload(records: PushRecordInput[], pushTyp
 }
 
 export async function pushBatch(
-  records: PushRecordInput[],
+  records: OutgoingPushRecord[],
   token?: string,
   options?: { signal?: AbortSignal; pushType?: PushType; idempotencyKey?: string }
 ): Promise<PushResponse> {

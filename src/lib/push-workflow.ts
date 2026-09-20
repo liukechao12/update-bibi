@@ -1,10 +1,11 @@
 import { PushResponse } from '@/lib/types';
 import { prisma } from '@/lib/prisma';
-import { buildVendorPushPayload, decidePushType, pushBatch } from '@/lib/push';
+import { buildVendorPushPayload, decidePushType, pushBatch, OutgoingPushRecord } from '@/lib/push';
 import { PushRecordInput } from '@/lib/schemas';
 import { normalizePublishTimeToDate } from '@/lib/mapping';
 import { getPushConfig } from '@/lib/push-config';
 import { generateBatchNo, generateJobNo } from '@/lib/business-no';
+import { applyMetricCapability, loadMetricCapabilityMap } from '@/lib/metric-capability';
 
 type PushError = { index: number; error: string; code?: string | number | null };
 
@@ -134,7 +135,7 @@ async function settleTransientStatuses(params: { recordIds: string[]; batchId: s
   }
 }
 
-async function runPushWithTimeout(records: ReturnType<typeof toPushPayload>[], pushJobId: string, timeoutMs: number, pushType: 'CREATE' | 'UPDATE') {
+async function runPushWithTimeout(records: OutgoingPushRecord[], pushJobId: string, timeoutMs: number, pushType: 'CREATE' | 'UPDATE') {
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -277,6 +278,10 @@ export async function pushExistingRecords(userId: string, recordIds: string[]): 
   }
 
   const pushType = classified.find((item) => item.pushType !== 'SKIP')?.pushType === 'UPDATE' ? 'UPDATE' as const : 'CREATE' as const;
+  const capabilityMap = await loadMetricCapabilityMap();
+  const outgoingRecords = pushableRecords.map((record) =>
+    applyMetricCapability(toPushPayload(record), record.sourceName, capabilityMap)
+  );
   const recordsWithPushType = pushableRecords.map((record) => {
     const latestSuccess = record.pushItems.find((item) => item.status === 'SUCCESS');
     return {
@@ -316,7 +321,7 @@ export async function pushExistingRecords(userId: string, recordIds: string[]): 
         ? (process.env.VENDOR_API_BASE_URL ?? '').replace(/\/messages$/, '/messages/revisions')
         : (process.env.VENDOR_API_BASE_URL ?? ''),
       pushType,
-      requestBody: await buildVendorPushPayload(pushableRecords.map((record) => toPushPayload(record)), pushType),
+      requestBody: await buildVendorPushPayload(outgoingRecords, pushType),
       status: 'SENDING',
       createdById: currentUser.id
     }
@@ -346,7 +351,7 @@ export async function pushExistingRecords(userId: string, recordIds: string[]): 
 
   try {
     const { payload, timedOut } = await runPushWithTimeout(
-      pushableRecords.map((record) => toPushPayload(record)), 
+      outgoingRecords, 
       pushJob.id, 
       pushConfig.timeoutMs,
       pushType

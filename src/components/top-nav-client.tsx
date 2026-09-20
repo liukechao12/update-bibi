@@ -52,7 +52,7 @@ const groupConfig = [
   {
     label: '资料管理',
     icon: 'library',
-    hrefs: ['/media-libraries']
+    hrefs: ['/media-libraries', '/media-capabilities']
   },
   {
     label: '系统管理',

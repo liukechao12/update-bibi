@@ -201,6 +201,7 @@ model DataRecord {
   tendency         String?
   rawSourceText    String?       @db.LongText
   sourceRowNo      Int?
+  sourceName       String?
   sourceDepartment String?
   recordStatus     RecordStatus  @default(DRAFT)
   isDuplicate      Boolean       @default(false)
@@ -217,6 +218,7 @@ model DataRecord {
   @@index([originType, publisherType])
   @@index([createdById, createdAt])
   @@index([sourceDepartment, createdAt])
+  @@index([sourceName])
 }
 
 model PushJob {
@@ -404,6 +406,18 @@ model ExternalApiRequestLog {
 
   @@index([clientId, createdAt])
   @@index([path, createdAt])
+}
+
+model MediaMetricCapability {
+  id                 String   @id @default(cuid())
+  sourceName         String   @unique
+  category           String?
+  commentCollectable Boolean  @default(false)
+  forwardCollectable Boolean  @default(false)
+  praiseCollectable  Boolean  @default(false)
+  remark             String?  @db.Text
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 }
 
 model DocumentSyncLog {
