@@ -11,12 +11,14 @@ import { syncDailyCollectionEvents } from '@/lib/daily-event-sync';
 function getCellString(value: ExcelJS.CellValue) {
   if (value === null || value === undefined) return '';
   if (value instanceof Date) {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    const h = String(value.getHours()).padStart(2, '0');
-    const min = String(value.getMinutes()).padStart(2, '0');
-    const s = String(value.getSeconds()).padStart(2, '0');
+    // Excel 的日期序列本身没有时区。ExcelJS 读取后会以 UTC Date 承载该序列；
+    // 取本地 getHours() 会在东八区额外加 8 小时，必须取 UTC 分量还原表格显示时间。
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(value.getUTCDate()).padStart(2, '0');
+    const h = String(value.getUTCHours()).padStart(2, '0');
+    const min = String(value.getUTCMinutes()).padStart(2, '0');
+    const s = String(value.getUTCSeconds()).padStart(2, '0');
     return `${y}-${m}-${d} ${h}:${min}:${s}`;
   }
   if (typeof value === 'object' && 'text' in value && typeof value.text === 'string') return value.text;
@@ -76,7 +78,12 @@ export async function POST(request: Request) {
         const row = worksheet.getRow(rowNo);
         if (row.actualCellCount === 0) continue;
         const raw: Record<string, string> = {};
-        headers.forEach((header: string, index: number) => { raw[header] = getCellString(row.getCell(index + 1).value); });
+        headers.forEach((header: string, index: number) => {
+          const cell = row.getCell(index + 1);
+          // ExcelJS 会把日期单元格转换成 Date；在服务器时区与 Excel 显示时区不同的情况下，
+          // 直接取 Date 的小时可能发生偏移。优先使用单元格显示文本，保持用户在 Excel 中看到的时间。
+          raw[header] = getCellString(cell.value);
+        });
         importedRows.push({ rowNo, raw });
       }
     }

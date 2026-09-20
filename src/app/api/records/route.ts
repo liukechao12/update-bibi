@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isPublishTimeInFuture, mapRawRecordToPushRecord } from '@/lib/mapping';
+import { isPublishTimeInFuture, mapRawRecordToPushRecord, normalizePublishTimeToDate } from '@/lib/mapping';
 import { extractRawBlocks, findMissingFields, parseRawTextRecords } from '@/lib/raw-parser';
 import { pushRecordsSaveSchema, pushRecordSchema } from '@/lib/schemas';
 import type { PushRecordInput } from '@/lib/schemas';
@@ -212,7 +212,7 @@ export async function POST(request: Request) {
   for (let index = 0; index < uniqueRecords.length; index += 1) {
     const record = uniqueRecords[index];
     const tendency = (uniqueTendencies[index] ?? selectedTendency) || null;
-    const publishTime = new Date(record.publishTime.replace(' ', 'T'));
+    const publishTime = normalizePublishTimeToDate(record.publishTime);
     const rawSourceText = JSON.stringify(sourceText.trim() ? parsedRawRecords[uniqueSourceIndexes[index]] ?? record : record);
     const existing = await prisma.dataRecord.findFirst({
       where: {

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { normalizePublishTimeToDate } from '@/lib/mapping';
 import type { PushRecordInput } from '@/lib/schemas';
 
 export const DAILY_COLLECTION_CATEGORY = '日常采集';
@@ -16,7 +17,7 @@ function eventTitle(record: PushRecordInput) {
 
 export async function syncDailyCollectionEvent(input: DailyEventInput) {
   const { record, tendency, rowNo } = input;
-  const publishTime = new Date(record.publishTime.replace(' ', 'T'));
+  const publishTime = normalizePublishTimeToDate(record.publishTime);
   const where = record.url
     ? { category: DAILY_COLLECTION_CATEGORY, link: record.url }
     : { category: DAILY_COLLECTION_CATEGORY, title: eventTitle(record), author: record.author, publishTime };

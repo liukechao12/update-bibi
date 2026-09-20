@@ -2,6 +2,7 @@ import { PushResponse } from '@/lib/types';
 import { prisma } from '@/lib/prisma';
 import { buildVendorPushPayload, decidePushType, pushBatch } from '@/lib/push';
 import { PushRecordInput } from '@/lib/schemas';
+import { normalizePublishTimeToDate } from '@/lib/mapping';
 import { getPushConfig } from '@/lib/push-config';
 import { generateBatchNo, generateJobNo } from '@/lib/business-no';
 
@@ -35,7 +36,11 @@ function toPushPayload(record: {
     textId: record.textId,
     title: record.title,
     text: record.text,
-    publishTime: record.publishTime.toISOString().slice(0, 19).replace('T', ' '),
+    publishTime: new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).format(record.publishTime),
     author: record.author,
     originType: record.originType as PushRecordInput['originType'],
     publisherType: record.publisherType as PushRecordInput['publisherType'],
@@ -174,7 +179,7 @@ export async function saveParsedRecordsOnly(userId: string, records: PushRecordI
         textId: record.textId,
         title: record.title,
         text: record.text,
-        publishTime: new Date(record.publishTime.replace(' ', 'T')),
+        publishTime: normalizePublishTimeToDate(record.publishTime),
         author: record.author,
         originType: record.originType,
         url: record.url,

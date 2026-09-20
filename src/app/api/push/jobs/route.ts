@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { pushRequestSchema } from '@/lib/schemas';
 import { buildVendorPushPayload, pushBatch } from '@/lib/push';
 import { prisma } from '@/lib/prisma';
-import { chunkRecords } from '@/lib/mapping';
+import { chunkRecords, normalizePublishTimeToDate } from '@/lib/mapping';
 import { Prisma } from '@prisma/client';
 import { requireApiUser } from '@/lib/api-auth';
 import { pushExistingRecords } from '@/lib/push-workflow';
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       textId: record.textId,
       title: record.title,
       text: record.text,
-      publishTime: new Date(record.publishTime.replace(' ', 'T')),
+      publishTime: normalizePublishTimeToDate(record.publishTime),
       author: record.author,
       originType: record.originType,
       publisherType: record.publisherType,
