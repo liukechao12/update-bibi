@@ -54,10 +54,12 @@ export async function POST(request: Request) {
       roles
     }
   });
+  // 仅 HTTPS 访问才加 Secure；服务器用 HTTP+IP 部署时加了会导致浏览器拒存 cookie、登录后跳回登录页
+  const isHttps = request.headers.get('x-forwarded-proto') === 'https' || new URL(request.url).protocol === 'https:';
   response.cookies.set('sync_push_token', token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: isHttps,
     path: '/',
     maxAge: 60 * 60 * 24 * 7
   });
