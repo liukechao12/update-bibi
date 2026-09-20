@@ -26,9 +26,10 @@ export async function GET(request: Request) {
 
   const where: Record<string, unknown> = {};
   if (status) where.status = status;
-  if (userId) {
+  const isAdmin = Boolean(auth.user.roles?.includes('SUPER_ADMIN'));
+  if (userId && isAdmin) {
     where.createdById = userId;
-  } else if (!auth.user.roles?.includes('SUPER_ADMIN')) {
+  } else if (!isAdmin) {
     where.createdById = auth.user.id;
   }
   if (startDate || endDate) {

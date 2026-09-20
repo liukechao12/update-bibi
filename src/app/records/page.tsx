@@ -109,7 +109,7 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
   const [records, total] = await Promise.all([
     prisma.dataRecord.findMany({
       ...queryOptions,
-      take: pageSize === 'all' ? undefined : pageSize,
+      take: pageSize === 'all' ? 1000 : pageSize,
       skip: pageSize === 'all' ? undefined : (page - 1) * pageSize
     }),
     prisma.dataRecord.count({ where })

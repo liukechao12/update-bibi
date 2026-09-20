@@ -12,7 +12,7 @@ export async function requireApiUser(request?: Request) {
         where: { id: client.createdById },
         include: { roles: { include: { role: true } } }
       });
-      if (user) return {
+      if (user && user.status === 'ACTIVE') return {
         user: {
           id: user.id,
           username: user.username,

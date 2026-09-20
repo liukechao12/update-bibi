@@ -87,14 +87,28 @@ export default function WeiboHotTab() {
     setFetching(true);
     setMessage('');
     try {
+      const prevBatchAt = data?.batchAt ?? null;
       const res = await fetch('/api/weibo-hot/fetch', { method: 'POST' });
       const json = await res.json();
       if (!res.ok) {
         setMessage(json.message ?? '抓取失败');
         return;
       }
-      setMessage(`抓取完成：共 ${json.total} 条，命中关键词 ${json.matched} 条${json.contentChecked ? '（已含正文匹配）' : ''}（${(json.channels ?? []).join('/')}）`);
-      await load(matchedOnly, channel);
+      setMessage(json.alreadyRunning ? '已有一轮抓取在进行中，等待完成后自动刷新…' : '已在后台开始抓取，完成后自动刷新…');
+      // 轮询等待新一轮抓取落库（最长 6 分钟）
+      const deadline = Date.now() + 6 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        const pollRes = await fetch('/api/weibo-hot/latest');
+        if (!pollRes.ok) continue;
+        const poll = (await pollRes.json()) as LatestResponse;
+        if (poll.batchAt && poll.batchAt !== prevBatchAt) {
+          setMessage(`抓取完成：共 ${poll.total} 条，命中关键词 ${poll.matchedCount} 条${poll.contentChecked ? '（已含正文匹配）' : ''}（${poll.channels.join('/')}）`);
+          await load(matchedOnly, channel);
+          return;
+        }
+      }
+      setMessage('抓取时间较长仍在后台进行，请稍后手动切换筛选或刷新页面查看');
     } finally {
       setFetching(false);
     }

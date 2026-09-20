@@ -9,7 +9,18 @@ export async function GET() {
 
   const users = await prisma.user.findMany({
     orderBy: { createdAt: 'desc' },
-    include: { roles: { include: { role: true } }, _count: { select: { createdDataRecords: true, createdPushJobs: true } } }
+    select: {
+      id: true,
+      username: true,
+      displayName: true,
+      department: true,
+      accountType: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      roles: { include: { role: true } },
+      _count: { select: { createdDataRecords: true, createdPushJobs: true } }
+    }
   });
 
   return NextResponse.json({ users });

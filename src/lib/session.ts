@@ -14,6 +14,7 @@ export async function getCurrentUser() {
     });
 
     if (!user) return null;
+    if (user.status !== 'ACTIVE') return null;
     if (user.currentSessionId && user.currentSessionId !== payload.sessionId) return null;
 
     return {

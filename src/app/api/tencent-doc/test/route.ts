@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
+import { requireApiAdmin } from '@/lib/api-auth';
 import { getTencentDocConfig, getTencentDocSheetData, getTencentDocSheets, redactTencentDocConfig } from '@/lib/tencent-doc-api';
 
 export async function GET() {
+  const auth = await requireApiAdmin();
+  if ('error' in auth) return auth.error;
+
   const config = await getTencentDocConfig();
   try {
     const sheets = await getTencentDocSheets();

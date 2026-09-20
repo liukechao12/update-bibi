@@ -93,7 +93,7 @@ async function fetchChannelRows(code: string): Promise<HotRow[]> {
   if (cookieValue) headers.Cookie = cookieValue;
   const res = await fetch(`${SUMMARY_URL}?cate=${code}`, {
     headers,
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(8000),
     redirect: 'manual'
   });
   if (!res.ok) throw new Error(`榜单 ${code} HTTP ${res.status}`);
@@ -106,7 +106,7 @@ async function fetchChannelRows(code: string): Promise<HotRow[]> {
 async function fetchMainBandRows(): Promise<HotRow[]> {
   const res = await fetch(HOT_BAND_URL, {
     headers: { 'User-Agent': UA, Referer: 'https://weibo.com/' },
-    signal: AbortSignal.timeout(15000)
+    signal: AbortSignal.timeout(8000)
   });
   if (!res.ok) throw new Error(`微博热点接口 HTTP ${res.status}`);
   const json = (await res.json()) as { ok?: number; data?: { band_list?: { rank?: number; realpos?: number; word?: string; num?: number; label_name?: string }[] } };
@@ -121,34 +121,34 @@ async function fetchMainBandRows(): Promise<HotRow[]> {
     .filter((row) => row.word);
 }
 
-// 抓取热点话题下的微博正文（需 Cookie），取前 3 条正文拼接
+// 抓取热点话题下的微博正文（需 Cookie），取前 3 条正文拼接；网络错误抛给调用方做熔断
 async function fetchTopicContent(word: string): Promise<string | null> {
   const cookieValue = cookie();
   if (!cookieValue) return null;
-  try {
-    const url = `${SEARCH_URL}?q=${encodeURIComponent(`#${word}#`)}`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': UA, Referer: 'https://s.weibo.com/', Cookie: cookieValue },
-      signal: AbortSignal.timeout(15000),
-      redirect: 'manual'
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-    if (!html.includes('txt')) return null;
-    const blocks = html.match(/<p[^>]*class="[^"]*txt[^"]*"[^>]*>[\s\S]*?<\/p>/g) ?? [];
-    const texts = blocks
-      .map((block) => stripTags(block.replace(/^<p[^>]*>/, '')))
-      .filter((text) => text.length > 0)
-      .slice(0, 3);
-    if (texts.length === 0) return null;
-    const joined = texts.join('\n---\n');
-    return joined.length > MAX_CONTENT ? joined.slice(0, MAX_CONTENT) : joined;
-  } catch {
-    return null;
-  }
+  const url = `${SEARCH_URL}?q=${encodeURIComponent(`#${word}#`)}`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': UA, Referer: 'https://s.weibo.com/', Cookie: cookieValue },
+    signal: AbortSignal.timeout(8000),
+    redirect: 'manual'
+  });
+  if (!res.ok) throw new Error(`正文搜索 HTTP ${res.status}`);
+  const html = await res.text();
+  if (!html.includes('txt')) return null;
+  const blocks = html.match(/<p[^>]*class="[^"]*txt[^"]*"[^>]*>[\s\S]*?<\/p>/g) ?? [];
+  const texts = blocks
+    .map((block) => stripTags(block.replace(/^<p[^>]*>/, '')))
+    .filter((text) => text.length > 0)
+    .slice(0, 3);
+  if (texts.length === 0) return null;
+  const joined = texts.join('\n---\n');
+  return joined.length > MAX_CONTENT ? joined.slice(0, MAX_CONTENT) : joined;
 }
 
 let fetchRunning = false;
+
+export function isWeiboHotFetchRunning() {
+  return fetchRunning;
+}
 
 export type WeiboHotFetchResult = {
   skipped: boolean;
@@ -181,11 +181,16 @@ export async function runWeiboHotFetch(options?: { force?: boolean }): Promise<W
     const channelResults: { channel: string; rows: HotRow[] }[] = [];
 
     if (hasCookie) {
+      let channelFailures = 0;
       for (const channel of WEIBO_HOT_CHANNELS) {
         try {
           channelResults.push({ channel: channel.name, rows: await fetchChannelRows(channel.code) });
+          channelFailures = 0;
         } catch (error) {
+          channelFailures += 1;
           console.error(`[weibo-hot] 榜单 ${channel.name} 抓取失败:`, error instanceof Error ? error.message : error);
+          // 连续两个榜单失败：多半是 Cookie 失效或 IP 被限流，直接放弃剩余榜单走降级
+          if (channelFailures >= 2) break;
         }
         await sleep(200);
       }
@@ -196,11 +201,25 @@ export async function runWeiboHotFetch(options?: { force?: boolean }): Promise<W
 
     // 正文按词去重后抓取，控制请求量
     const contentMap = new Map<string, string>();
+    let contentComplete = false;
     if (hasCookie) {
       const uniqueWords = [...new Set(channelResults.flatMap((item) => item.rows.map((row) => row.word)))];
+      let contentFailures = 0;
+      contentComplete = true;
       for (const word of uniqueWords) {
-        const text = await fetchTopicContent(word);
-        if (text) contentMap.set(word, text);
+        try {
+          const text = await fetchTopicContent(word);
+          contentFailures = 0;
+          if (text) contentMap.set(word, text);
+        } catch (error) {
+          contentFailures += 1;
+          // 连续 5 次失败（超时/限流）：熔断，放弃剩余正文抓取，避免整轮拖几十分钟
+          if (contentFailures >= 5) {
+            contentComplete = false;
+            console.error('[weibo-hot] 正文抓取连续失败，已熔断跳过剩余正文:', error instanceof Error ? error.message : error);
+            break;
+          }
+        }
         await sleep(CONTENT_DELAY_MS);
       }
     }
@@ -244,7 +263,7 @@ export async function runWeiboHotFetch(options?: { force?: boolean }): Promise<W
       total: rows.length,
       matched: matchedCount,
       channels: channelResults.map((item) => item.channel),
-      contentChecked: hasCookie
+      contentChecked: contentComplete
     };
   } finally {
     fetchRunning = false;

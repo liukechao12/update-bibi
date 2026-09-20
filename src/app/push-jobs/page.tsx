@@ -31,9 +31,10 @@ export default async function PushJobsPage({ searchParams }: { searchParams: Pro
   if (resolvedSearchParams.status) {
     where.status = resolvedSearchParams.status as unknown as Prisma.EnumPushJobStatusFilter;
   }
-  if (resolvedSearchParams.userId) {
+  const isAdmin = Boolean(user.roles?.includes('SUPER_ADMIN'));
+  if (resolvedSearchParams.userId && isAdmin) {
     where.createdById = resolvedSearchParams.userId;
-  } else if (!user.roles?.includes('SUPER_ADMIN')) {
+  } else if (!isAdmin) {
     where.createdById = user.id;
   }
   if (resolvedSearchParams.startDate || resolvedSearchParams.endDate) {

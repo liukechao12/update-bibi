@@ -6,6 +6,9 @@ export const authorTypeSchema = z.enum(['BLUE_V', 'SELF_MEDIA', 'PERSONAL']).nul
 
 // 客户 v3 接口要求小写枚举（media/social、blue_v/self_media/personal），
 // 这里定义推送给客户前的校验 schema 与转换函数。
+// 仅允许 http/https，防止 javascript: 等协议造成存储型 XSS
+export const httpUrlSchema = z.string().url().refine((value) => /^https?:\/\//i.test(value), '链接必须以 http:// 或 https:// 开头');
+
 const cleanTextField = z.string().min(1).refine((value) => !value.includes('[object Object]'), '字段包含非法对象序列化内容');
 
 export const vendorPublisherTypeSchema = z.enum(['media', 'social']);
@@ -21,7 +24,7 @@ export const vendorPushRecordSchema = z.object({
   originType: originTypeSchema,
   publisherType: vendorPublisherTypeSchema,
   authorType: vendorAuthorTypeSchema,
-  url: z.string().url(),
+  url: httpUrlSchema,
   // 客户确认：平台采集不到的互动指标推 null（媒体采集能力表判定）
   commentNum: z.number().int().nonnegative().nullable(),
   forwardNum: z.number().int().nonnegative().nullable(),
@@ -64,7 +67,7 @@ export const pushRecordSchema = z.object({
   originType: originTypeSchema,
   publisherType: publisherTypeSchema,
   authorType: authorTypeSchema,
-  url: z.string().url(),
+  url: httpUrlSchema,
   commentNum: z.number().int().nonnegative(),
   forwardNum: z.number().int().nonnegative().nullable(),
   praiseNum: z.number().int().nonnegative().nullable(),

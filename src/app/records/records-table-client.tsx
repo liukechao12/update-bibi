@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Fragment, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { labelOrValue, originTypeLabelMap, recordStatusLabelMap } from '@/lib/labels';
+import { safeHref } from '@/lib/safe-url';
 
 type RecordItem = {
   id: string;
@@ -416,7 +417,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
                                 <tr><th>作者</th><td>{record.author}</td></tr>
                                 <tr><th>来源</th><td>{labelOrValue(originTypeLabelMap, record.originType)}（{record.originType}）</td></tr>
                                 <tr><th>来源部门</th><td>{record.sourceDepartment || '-'}</td></tr>
-                                <tr><th>链接</th><td><a href={record.url} target="_blank" rel="noreferrer">{record.url}</a></td></tr>
+                                <tr><th>链接</th><td><a href={safeHref(record.url)} target="_blank" rel="noreferrer">{record.url}</a></td></tr>
                                 <tr><th>发布时间</th><td>{record.publishTime}</td></tr>
                                 <tr><th>评论数</th><td>{record.commentNum}</td></tr>
                                 <tr><th>转发数</th><td>{record.forwardNum ?? '-'}</td></tr>

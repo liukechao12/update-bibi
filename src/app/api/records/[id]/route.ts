@@ -10,14 +10,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const record = await prisma.dataRecord.findUnique({
     where: { id },
-    select: { id: true, text: true, rawSourceText: true }
+    select: { id: true, text: true, rawSourceText: true, createdById: true }
   });
 
   if (!record) {
     return NextResponse.json({ code: 40400, message: '记录不存在' }, { status: 404 });
   }
 
-  return NextResponse.json({ record });
+  if (!auth.user.roles?.includes('SUPER_ADMIN') && record.createdById !== auth.user.id) {
+    return NextResponse.json({ code: 40300, message: '无权限查看其他人的记录' }, { status: 403 });
+  }
+
+  return NextResponse.json({ record: { id: record.id, text: record.text, rawSourceText: record.rawSourceText } });
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
