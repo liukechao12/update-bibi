@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { notifyWeiboHotMatches } from '@/lib/wechat-notify';
 
-export const WEIBO_HOT_KEYWORDS = ['B站', 'bilibili', '哔哩哔哩', '陈睿'];
+export const WEIBO_HOT_KEYWORDS = ['B站', 'bilibili', '哔哩哔哩', '陈睿','猫耳'];
 
 // 微博热搜侧边栏榜单（s.weibo.com/top/summary?cate= 代码）
 export const WEIBO_HOT_CHANNELS = [

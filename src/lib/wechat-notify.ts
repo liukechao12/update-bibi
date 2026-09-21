@@ -2,8 +2,6 @@ import { prisma } from '@/lib/prisma';
 
 const TOKEN_URL = 'https://api.weixin.qq.com/cgi-bin/token';
 const SEND_URL = 'https://api.weixin.qq.com/cgi-bin/message/template/send';
-// 同一热点超过 2 小时没有再推送过（大概率下榜又回来），按"重新上榜"再推一次
-const REPUSH_GAP_MS = 2 * 60 * 60 * 1000;
 
 type WechatConfig = {
   appid: string;
@@ -80,7 +78,7 @@ function formatDuration(firstSeenAt: Date, now: Date) {
   return `${mins}分钟`;
 }
 
-// 抓取入库后调用：对本批次命中的热点做「首次命中 / 排名变化 / 重新上榜」判断并推送模板消息
+// 抓取入库后调用：只推「新上榜（首次命中 / 下榜后回来）」和「排名上升」，排名下降或不变不推
 export async function notifyWeiboHotMatches(batchAt: Date) {
   const cfg = loadConfig();
   if (!cfg) return { sent: 0, enabled: false };
@@ -93,11 +91,27 @@ export async function notifyWeiboHotMatches(batchAt: Date) {
   });
   const stateMap = new Map(states.map((state) => [`${state.channel}||${state.word}`, state]));
 
+  // 上一批次在榜的词，用来判断"下榜后又回来"（新上榜）
+  const prevBatch = await prisma.weiboHotTopic.findFirst({
+    where: { batchAt: { lt: batchAt } },
+    orderBy: { batchAt: 'desc' },
+    select: { batchAt: true }
+  });
+  const prevTopics = prevBatch
+    ? await prisma.weiboHotTopic.findMany({
+        where: { batchAt: prevBatch.batchAt },
+        select: { channel: true, word: true }
+      })
+    : [];
+  const prevWords = new Set(prevTopics.map((item) => `${item.channel}||${item.word}`));
+  const prevChannels = new Set(prevTopics.map((item) => item.channel));
+
   const now = new Date();
   let sent = 0;
 
   for (const topic of topics) {
-    const state = stateMap.get(`${topic.channel}||${topic.word}`);
+    const key = `${topic.channel}||${topic.word}`;
+    const state = stateMap.get(key);
 
     let firstSeenAt = state?.firstSeenAt ?? topic.batchAt;
     if (!state) {
@@ -108,19 +122,18 @@ export async function notifyWeiboHotMatches(batchAt: Date) {
       firstSeenAt = first._min.batchAt ?? topic.batchAt;
     }
 
+    // 该榜上一批次整体没抓到（抓取失败），无法判断是否下榜，跳过"重新上榜"判定
+    const backOnList = state ? prevChannels.has(topic.channel) && !prevWords.has(key) : false;
+
     let firstLine: string;
-    let trend: string;
     if (!state) {
-      firstLine = '微博热点命中提醒';
-      trend = `新命中关键词：${topic.matchedKeywords ?? ''}`;
-    } else if (now.getTime() - state.lastPushedAt.getTime() > REPUSH_GAP_MS) {
+      firstLine = '微博热点新上榜';
+    } else if (backOnList) {
       firstLine = '微博热点重新上榜';
-      trend = `下榜后重新上榜，当前第${topic.rank + 1}名`;
-    } else if (state.lastPushedRank === topic.rank) {
-      continue; // 排名没变化，不重复推送
+    } else if (topic.rank >= state.lastPushedRank) {
+      continue; // 只推上升，排名不变或下降都不推
     } else {
-      firstLine = '微博热点排名变化';
-      trend = `第${state.lastPushedRank + 1}名 → 第${topic.rank + 1}名（${topic.rank < state.lastPushedRank ? '上升' : '下降'}）`;
+      firstLine = '微博热点排名上升';
     }
 
     const listName = topic.channel === '热搜' ? '微博热搜榜' : `微博${topic.channel}榜`;
@@ -130,11 +143,9 @@ export async function notifyWeiboHotMatches(batchAt: Date) {
       keyword: { value: `#${topic.word}#` },
       channel: { value: listName },
       rank: { value: `第${topic.rank + 1}名` },
-      trend: { value: trend },
       onboard: { value: formatBeijingMinute(firstSeenAt) },
       duration: { value: formatDuration(firstSeenAt, now) },
-      link: { value: url },
-      remark: { value: '点击消息也可直接打开链接' }
+      link: { value: url }
     };
 
     let sentForTopic = 0;
