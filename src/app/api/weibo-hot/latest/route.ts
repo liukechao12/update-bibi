@@ -44,9 +44,41 @@ export async function GET(request: Request) {
     prisma.weiboHotTopic.count({ where: baseWhere })
   ]);
 
+  // 为播报文案补充：首次上榜时间 + 相对上一批次的排名趋势
+  const words = [...new Set(topics.map((topic) => topic.word))];
+  const prevBatch = await prisma.weiboHotTopic.findFirst({
+    where: { batchAt: { lt: latest.batchAt } },
+    orderBy: { batchAt: 'desc' },
+    select: { batchAt: true }
+  });
+  const [firstSeenRows, prevRows] = await Promise.all([
+    words.length > 0
+      ? prisma.weiboHotTopic.groupBy({
+          by: ['word', 'channel'],
+          where: { word: { in: words } },
+          _min: { batchAt: true }
+        })
+      : Promise.resolve([]),
+    prevBatch
+      ? prisma.weiboHotTopic.findMany({
+          where: { batchAt: prevBatch.batchAt },
+          select: { word: true, channel: true, rank: true }
+        })
+      : Promise.resolve([])
+  ]);
+  const firstSeenMap = new Map(firstSeenRows.map((row) => [`${row.channel}||${row.word}`, row._min.batchAt]));
+  const prevRankMap = new Map(prevRows.map((row) => [`${row.channel}||${row.word}`, row.rank]));
+
+  const enrichedTopics = topics.map((topic) => {
+    const key = `${topic.channel}||${topic.word}`;
+    const prevRank = prevRankMap.get(key);
+    const rankTrend = prevRank === undefined ? 'new' : topic.rank < prevRank ? 'up' : topic.rank > prevRank ? 'down' : 'same';
+    return { ...topic, firstSeenAt: firstSeenMap.get(key) ?? topic.batchAt, rankTrend };
+  });
+
   return NextResponse.json({
     batchAt: latest.batchAt,
-    topics,
+    topics: enrichedTopics,
     matchedCount,
     total,
     channels,

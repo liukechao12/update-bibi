@@ -15,6 +15,8 @@ type HotTopic = {
   content: string | null;
   matched: boolean;
   matchedKeywords: string | null;
+  firstSeenAt: string;
+  rankTrend: 'up' | 'down' | 'same' | 'new';
 };
 
 type LatestResponse = {
@@ -52,6 +54,67 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 }
 
+// 播报文案用：北京时间 yyyy-MM-dd HH:mm
+function formatBeijingMinute(iso: string) {
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(new Date(iso));
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+}
+
+function formatOnboardDuration(firstSeenAt: string, now: Date) {
+  const minutes = Math.max(0, Math.floor((now.getTime() - new Date(firstSeenAt).getTime()) / 60000));
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+  if (days > 0) return `${days}天${hours}时${mins}分钟`;
+  if (hours > 0) return `${hours}时${mins}分钟`;
+  return `${mins}分钟`;
+}
+
+const TREND_TEXT: Record<HotTopic['rankTrend'], string> = {
+  up: '热搜排名有所上升',
+  down: '热搜排名有所下降',
+  same: '热搜排名持平',
+  new: '为新上榜话题'
+};
+
+function buildBroadcastText(topic: HotTopic, now: Date) {
+  const rankNo = topic.rank + 1;
+  const listName = topic.channel === '热搜' ? '微博热搜榜' : `微博${topic.channel}榜`;
+  const position = topic.channel === '热搜' ? `位列${listName}第${rankNo}名` : `位列${listName}热搜第${rankNo}名`;
+  const url = `https://s.weibo.com/weibo?q=${encodeURIComponent(`#${topic.word}#`)}`;
+  return `${listName}平台，#${topic.word}#事件${position}，${TREND_TEXT[topic.rankTrend] ?? ''}。上榜时间${formatBeijingMinute(topic.firstSeenAt)}，当前在榜时长${formatOnboardDuration(topic.firstSeenAt, now)}。链接：${url}`;
+}
+
+// HTTP 部署下 navigator.clipboard 不可用，降级用隐藏 textarea + execCommand
+async function copyToClipboard(text: string) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // 继续走降级
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(textarea);
+  return ok;
+}
+
 export default function WeiboHotTab() {
   const [data, setData] = useState<LatestResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,6 +122,18 @@ export default function WeiboHotTab() {
   const [matchedOnly, setMatchedOnly] = useState(false);
   const [channel, setChannel] = useState('');
   const [message, setMessage] = useState('');
+  const [copiedId, setCopiedId] = useState('');
+
+  async function handleCopyBroadcast(topic: HotTopic) {
+    const text = buildBroadcastText(topic, new Date());
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedId(topic.id);
+      setTimeout(() => setCopiedId((current) => (current === topic.id ? '' : current)), 2000);
+    } else {
+      setMessage('复制失败，请手动复制');
+    }
+  }
 
   const load = useCallback(async (onlyMatched: boolean, channelFilter: string) => {
     setLoading(true);
@@ -172,6 +247,7 @@ export default function WeiboHotTab() {
                 <th style={{ width: 110 }}>分类</th>
                 <th style={{ width: 110 }}>热度</th>
                 <th style={{ width: 150 }}>命中关键词</th>
+                <th style={{ width: 100 }}>播报</th>
               </tr>
             </thead>
             <tbody>
@@ -211,6 +287,17 @@ export default function WeiboHotTab() {
                     ) : (
                       '-'
                     )}
+                  </td>
+                  <td>
+                    <button
+                      className="button secondary"
+                      type="button"
+                      style={{ padding: '4px 10px', fontSize: 12 }}
+                      onClick={() => handleCopyBroadcast(topic)}
+                      title={buildBroadcastText(topic, new Date())}
+                    >
+                      {copiedId === topic.id ? '已复制' : '复制播报'}
+                    </button>
                   </td>
                 </tr>
               ))}

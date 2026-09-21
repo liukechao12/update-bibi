@@ -462,3 +462,17 @@ model WeiboHotTopic {
   @@index([batchAt, channel])
   @@index([matched, batchAt])
 }
+
+// 微信推送去重状态：每个 word+channel 记录最近一次推送时的排名
+model WeiboHotNotify {
+  id             String   @id @default(cuid())
+  word           String
+  channel        String
+  firstSeenAt    DateTime
+  lastPushedRank Int
+  lastPushedAt   DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([word, channel])
+}

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { notifyWeiboHotMatches } from '@/lib/wechat-notify';
 
 export const WEIBO_HOT_KEYWORDS = ['B站', 'bilibili', '哔哩哔哩', '陈睿'];
 
@@ -255,6 +256,12 @@ export async function runWeiboHotFetch(options?: { force?: boolean }): Promise<W
 
     if (rows.length > 0) {
       await prisma.weiboHotTopic.createMany({ data: rows });
+      try {
+        const notifyResult = await notifyWeiboHotMatches(batchAt);
+        if (notifyResult.sent > 0) console.log(`[weibo-hot] 微信模板消息已推送 ${notifyResult.sent} 条`);
+      } catch (error) {
+        console.error('[weibo-hot] 微信推送失败:', error instanceof Error ? error.message : error);
+      }
     }
 
     return {
