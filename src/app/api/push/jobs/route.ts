@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pushRequestSchema } from '@/lib/schemas';
-import { buildVendorPushPayload, pushBatch } from '@/lib/push';
+import { buildVendorPushPayload, mapPushFailures, pushBatch, resolveEndpoint } from '@/lib/push';
+import { getPushConfig } from '@/lib/push-config';
 import { prisma } from '@/lib/prisma';
 import { chunkRecords, normalizePublishTimeToDate } from '@/lib/mapping';
 import { Prisma } from '@prisma/client';
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ code: 50000, message: '未找到当前用户' }, { status: 500 });
   }
 
-  const batchGroups = chunkRecords(parsed.data.records, 100);
+  const batchGroups = chunkRecords(parsed.data.records, Math.max(1, (await getPushConfig()).batchSize));
   const results: Array<{ jobNo: string; inserted: number; failed: number; errors: PushError[] }> = [];
   const dataBatch = await prisma.dataBatch.create({
     data: {
@@ -93,6 +94,8 @@ export async function POST(request: Request) {
     orderBy: { createdAt: 'asc' }
   });
 
+  const endpoint = await resolveEndpoint('CREATE');
+
   for (let index = 0; index < batchGroups.length; index += 1) {
     const group = batchGroups[index];
     const pushJob = await prisma.pushJob.create({
@@ -100,7 +103,7 @@ export async function POST(request: Request) {
         batchId: dataBatch.id,
         jobNo: `${generateJobNo()}-${index + 1}`,
         env: 'UAT',
-        endpoint: process.env.VENDOR_API_BASE_URL ?? '',
+        endpoint,
         requestBody: await buildVendorPushPayload(group),
         status: 'SENDING',
         createdById: currentUser.id
@@ -135,21 +138,22 @@ export async function POST(request: Request) {
       results.push({ jobNo: pushJob.jobNo, inserted: result.inserted, failed: result.failed, errors: responseItems });
 
       const itemRecords = await prisma.pushJobItem.findMany({ where: { pushJobId: pushJob.id }, orderBy: { itemIndex: 'asc' } });
+      const failures = mapPushFailures(result, itemRecords.length);
       for (let i = 0; i < itemRecords.length; i += 1) {
         const item = itemRecords[i];
-        const error = responseItems.find((entry) => entry.index === i);
+        const failure = failures.get(i);
         await prisma.pushJobItem.update({
           where: { id: item.id },
           data: {
-            status: error ? 'FAILED' : 'SUCCESS',
-            errorMessage: error ? normalizeErrorMessage(error.error) : null,
-            vendorResponseCode: error?.code != null ? String(error.code) : null
+            status: failure ? 'FAILED' : 'SUCCESS',
+            errorMessage: failure ? normalizeErrorMessage(failure.error) : null,
+            vendorResponseCode: failure?.code != null ? String(failure.code) : null
           }
         });
         await prisma.dataRecord.update({
           where: { id: item.recordId },
           data: {
-            recordStatus: error ? 'FAILED' : 'SUCCESS'
+            recordStatus: failure ? 'FAILED' : 'SUCCESS'
           }
         });
       }

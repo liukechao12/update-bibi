@@ -7,7 +7,7 @@ export type PushType = 'CREATE' | 'UPDATE';
 
 // 推送给客户前的记录形态：互动指标可能因媒体采集能力被置为 null
 export type OutgoingPushRecord = Omit<PushRecordInput, 'commentNum' | 'forwardNum' | 'praiseNum'> & {
-  commentNum: number | null;
+  commentNum: number;
   forwardNum: number | null;
   praiseNum: number | null;
 };
@@ -42,7 +42,7 @@ function getBackoffDelay(attempt: number, initialMs: number, maxMs: number) {
   return Math.min(initialMs * 2 ** attempt, maxMs);
 }
 
-async function resolveEndpoint(pushType: 'CREATE' | 'UPDATE'): Promise<string> {
+export async function resolveEndpoint(pushType: 'CREATE' | 'UPDATE'): Promise<string> {
   const configured = await getPushConfig().then((c) => c.url);
   if (!configured || configured.includes('replace-with')) {
     throw new Error('未配置客户推送接口地址（VENDOR_API_URL），无法推送');
@@ -55,6 +55,30 @@ async function resolveEndpoint(pushType: 'CREATE' | 'UPDATE'): Promise<string> {
   return configured;
 }
 
+// 客户整批拒收（如"单批超过 100 条"）时只会返回一条 index 错误，failed 却是整批条数。
+// 这种情况下无法逐条定位，必须全部按失败处理，否则客户没收到的数据会被标成推送成功，
+// 下次再推就走 UPDATE，被客户回"textId 尚未完成首次推送"。
+export function mapPushFailures(payload: PushResponse, itemCount: number) {
+  const errors = Array.isArray(payload.errors) ? payload.errors : [];
+  const located = new Map<number, { error: string; code?: string | number | null }>();
+  for (const entry of errors) {
+    const index = Number(entry?.index);
+    if (Number.isInteger(index) && index >= 0 && index < itemCount) {
+      located.set(index, { error: entry.error ?? '推送失败', code: (entry as { code?: string | number | null }).code });
+    }
+  }
+
+  const failed = Number(payload.failed) || 0;
+  if (failed <= located.size) return located;
+
+  const reason = errors[0]?.error ?? `客户整批拒收（inserted=${payload.inserted}，failed=${failed}）`;
+  const whole = new Map<number, { error: string; code?: string | number | null }>();
+  for (let i = 0; i < itemCount; i += 1) {
+    whole.set(i, { error: reason, code: (errors[0] as { code?: string | number | null } | undefined)?.code });
+  }
+  return whole;
+}
+
 export async function buildVendorPushPayload(records: OutgoingPushRecord[], pushType: PushType = 'CREATE') {
   const config = await getPushConfig();
   const apiVersion = String(config.apiVersion ?? '3').trim() || '3';
@@ -63,6 +87,8 @@ export async function buildVendorPushPayload(records: OutgoingPushRecord[], push
     const { crawlTime, ...base } = record;
     const normalized = {
       ...base,
+      // 客户接口的 commentNum 为必填数值，任何异常空值统一按真实零值 0 发送。
+      commentNum: Number.isFinite(record.commentNum) ? Number(record.commentNum) : 0,
       publisherType: record.publisherType.toLowerCase() as 'media' | 'social',
       authorType: record.authorType ? (record.authorType.toLowerCase() as 'blue_v' | 'self_media' | 'personal') : null
     };

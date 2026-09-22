@@ -25,8 +25,8 @@ export const vendorPushRecordSchema = z.object({
   publisherType: vendorPublisherTypeSchema,
   authorType: vendorAuthorTypeSchema,
   url: httpUrlSchema,
-  // 客户确认：平台采集不到的互动指标推 null（媒体采集能力表判定）
-  commentNum: z.number().int().nonnegative().nullable(),
+  // 客户接口要求评论数必填；即使上游未采集，也必须明确传 0，不能传 null。
+  commentNum: z.number().int().nonnegative(),
   forwardNum: z.number().int().nonnegative().nullable(),
   praiseNum: z.number().int().nonnegative().nullable(),
   viewNum: z.number().int().nonnegative().nullable()

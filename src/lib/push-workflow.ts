@@ -1,13 +1,11 @@
 import { PushResponse } from '@/lib/types';
 import { prisma } from '@/lib/prisma';
-import { buildVendorPushPayload, decidePushType, pushBatch, OutgoingPushRecord } from '@/lib/push';
+import { buildVendorPushPayload, decidePushType, mapPushFailures, pushBatch, resolveEndpoint, OutgoingPushRecord } from '@/lib/push';
 import { PushRecordInput } from '@/lib/schemas';
 import { normalizePublishTimeToDate } from '@/lib/mapping';
 import { getPushConfig } from '@/lib/push-config';
 import { generateBatchNo, generateJobNo } from '@/lib/business-no';
 import { applyMetricCapability, loadMetricCapabilityMap } from '@/lib/metric-capability';
-
-type PushError = { index: number; error: string; code?: string | number | null };
 
 const MAX_ERROR_MESSAGE_LENGTH = 60000;
 
@@ -61,9 +59,9 @@ async function getCurrentUserWithRoles(userId: string) {
   });
 }
 
-async function writePushResult(pushJobId: string, payload: Awaited<ReturnType<typeof pushBatch>>) {
+async function writePushResult(pushJobId: string, payload: PushResponse) {
   const pushItems = await prisma.pushJobItem.findMany({ where: { pushJobId }, orderBy: { itemIndex: 'asc' } });
-  const errors = (payload.errors ?? []) as PushError[];
+  const failures = mapPushFailures(payload, pushItems.length);
 
   await prisma.pushJob.update({
     where: { id: pushJobId },
@@ -78,7 +76,7 @@ async function writePushResult(pushJobId: string, payload: Awaited<ReturnType<ty
 
   for (let i = 0; i < pushItems.length; i += 1) {
     const item = pushItems[i];
-    const failure = errors.find((entry) => entry.index === i);
+    const failure = failures.get(i);
     await prisma.pushJobItem.update({
       where: { id: item.id },
       data: {
@@ -94,7 +92,28 @@ async function writePushResult(pushJobId: string, payload: Awaited<ReturnType<ty
   }
 }
 
-async function settleTransientStatuses(params: { recordIds: string[]; batchId: string; pushJobId: string; timeoutReason?: string }) {
+async function markChunkFailed(params: { pushJobId: string; recordIds: string[]; message: string; httpStatus: number }) {
+  await prisma.pushJob.update({
+    where: { id: params.pushJobId },
+    data: {
+      responseBody: { error: params.message },
+      httpStatus: params.httpStatus,
+      failedCount: params.recordIds.length,
+      status: 'FAILED'
+    }
+  });
+  await prisma.pushJobItem.updateMany({
+    where: { pushJobId: params.pushJobId },
+    data: { status: 'FAILED', errorMessage: params.message }
+  });
+  await prisma.dataRecord.updateMany({
+    where: { id: { in: params.recordIds } },
+    data: { recordStatus: 'FAILED' }
+  });
+}
+
+// 单片推送结束后兜底：把还卡在中间态的记录和任务落成 FAILED
+async function settleChunkTransient(params: { recordIds: string[]; pushJobId: string; reason?: string }) {
   const lingeringRecords = await prisma.dataRecord.findMany({
     where: { id: { in: params.recordIds }, recordStatus: 'PUSHING' },
     select: { id: true }
@@ -112,24 +131,27 @@ async function settleTransientStatuses(params: { recordIds: string[]; batchId: s
       where: { id: params.pushJobId },
       data: {
         status: 'FAILED',
-        responseBody: params.timeoutReason ? { error: params.timeoutReason } : undefined,
-        httpStatus: params.timeoutReason ? 504 : undefined,
+        responseBody: params.reason ? { error: params.reason } : undefined,
+        httpStatus: params.reason ? 504 : undefined,
         failedCount: params.recordIds.length
       }
     });
   }
+}
 
-  const batch = await prisma.dataBatch.findUnique({ where: { id: params.batchId }, select: { status: true } });
+// 进程中途崩溃时批次会停在 PUSHING，这里兜底落 FAILED
+async function settleBatchTransient(batchId: string, reason: string) {
+  const batch = await prisma.dataBatch.findUnique({ where: { id: batchId }, select: { status: true } });
   if (batch && batch.status === 'PUSHING') {
     await prisma.dataBatch.update({
-      where: { id: params.batchId },
+      where: { id: batchId },
       data: {
         status: 'FAILED',
         pushedAt: new Date(),
         pushCount: 1,
         successCount: 0,
         failCount: 1,
-        remark: params.timeoutReason ?? '推送超时'
+        remark: reason
       }
     });
   }
@@ -312,153 +334,112 @@ export async function pushExistingRecords(userId: string, recordIds: string[]): 
     }
   });
 
-  const pushJob = await prisma.pushJob.create({
-    data: {
-      batchId: pushBatchRecord.id,
-      jobNo: generateJobNo(),
-      env: 'UAT',
-      endpoint: pushType === 'UPDATE'
-        ? (process.env.VENDOR_API_BASE_URL ?? '').replace(/\/messages$/, '/messages/revisions')
-        : (process.env.VENDOR_API_BASE_URL ?? ''),
-      pushType,
-      requestBody: await buildVendorPushPayload(outgoingRecords, pushType),
-      status: 'SENDING',
-      createdById: currentUser.id
-    }
-  });
-
-  await prisma.pushJobItem.createMany({
-    data: recordsWithPushType.map((record, index) => ({
-      pushJobId: pushJob.id,
-      recordId: record.id,
-      itemIndex: index + 1,
-      pushType: record.determinedPushType,
-      previousCommentNum: record.commentNum,
-      previousForwardNum: record.forwardNum,
-      previousPraiseNum: record.praiseNum,
-      previousViewNum: record.viewNum,
-      status: 'SENDING'
-    }))
-  });
-
-  await prisma.dataRecord.updateMany({
-    where: { id: { in: pushableRecords.map((record) => record.id) } },
-    data: { recordStatus: 'PUSHING' }
-  });
-
   const pushConfig = await getPushConfig();
   const timeoutReason = `推送超时，超过 ${Math.round(pushConfig.timeoutMs / 1000)} 秒未完成`;
+  const endpoint = await resolveEndpoint(pushType);
+
+  // 客户接口单批有上限（超过会整批拒收），按配置分片，一片一个任务
+  const chunkSize = Math.max(1, pushConfig.batchSize);
+  const chunks: Array<{ items: typeof recordsWithPushType; outgoing: OutgoingPushRecord[]; recordIds: string[] }> = [];
+  for (let start = 0; start < pushableRecords.length; start += chunkSize) {
+    const end = Math.min(start + chunkSize, pushableRecords.length);
+    chunks.push({
+      items: recordsWithPushType.slice(start, end),
+      outgoing: outgoingRecords.slice(start, end),
+      recordIds: pushableRecords.slice(start, end).map((record) => record.id)
+    });
+  }
+
+  const results: PushResponse[] = [];
+  let failedChunks = 0;
+  let erroredRecords = 0;
+  let lastError: unknown = null;
 
   try {
-    const { payload, timedOut } = await runPushWithTimeout(
-      outgoingRecords, 
-      pushJob.id, 
-      pushConfig.timeoutMs,
-      pushType
-    );
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+      const chunk = chunks[chunkIndex];
 
-    if (timedOut) {
-      await prisma.pushJob.update({
-        where: { id: pushJob.id },
+      const pushJob = await prisma.pushJob.create({
         data: {
-          responseBody: { error: timeoutReason },
-          httpStatus: 504,
-          failedCount: pushableRecords.length,
-          status: 'FAILED'
+          batchId: pushBatchRecord.id,
+          jobNo: chunks.length > 1 ? `${generateJobNo()}-${chunkIndex + 1}` : generateJobNo(),
+          env: 'UAT',
+          endpoint,
+          pushType,
+          requestBody: await buildVendorPushPayload(chunk.outgoing, pushType),
+          status: 'SENDING',
+          createdById: currentUser.id
         }
       });
 
-      await prisma.pushJobItem.updateMany({
-        where: { pushJobId: pushJob.id },
-        data: {
-          status: 'FAILED',
-          errorMessage: timeoutReason
-        }
+      await prisma.pushJobItem.createMany({
+        data: chunk.items.map((record, index) => ({
+          pushJobId: pushJob.id,
+          recordId: record.id,
+          itemIndex: index + 1,
+          pushType: record.determinedPushType,
+          previousCommentNum: record.commentNum,
+          previousForwardNum: record.forwardNum,
+          previousPraiseNum: record.praiseNum,
+          previousViewNum: record.viewNum,
+          status: 'SENDING'
+        }))
       });
 
       await prisma.dataRecord.updateMany({
-        where: { id: { in: pushableRecords.map((record) => record.id) } },
-        data: { recordStatus: 'FAILED' }
+        where: { id: { in: chunk.recordIds } },
+        data: { recordStatus: 'PUSHING' }
       });
 
-      await prisma.dataBatch.update({
-        where: { id: pushBatchRecord.id },
-        data: {
-          status: 'FAILED',
-          pushedAt: new Date(),
-          pushCount: 1,
-          successCount: 0,
-          failCount: 1,
-          remark: timeoutReason
+      try {
+        const { payload, timedOut } = await runPushWithTimeout(chunk.outgoing, pushJob.id, pushConfig.timeoutMs, pushType);
+
+        if (timedOut || !payload) {
+          await markChunkFailed({ pushJobId: pushJob.id, recordIds: chunk.recordIds, message: timeoutReason, httpStatus: 504 });
+          failedChunks += 1;
+          erroredRecords += chunk.recordIds.length;
+          lastError = new Error(timeoutReason);
+          continue;
         }
-      });
 
-      throw new Error(timeoutReason);
+        await writePushResult(pushJob.id, payload);
+        results.push(payload);
+        if (payload.failed > 0) failedChunks += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '推送失败';
+        await markChunkFailed({
+          pushJobId: pushJob.id,
+          recordIds: chunk.recordIds,
+          message,
+          httpStatus: message.includes('超时') ? 504 : 500
+        });
+        failedChunks += 1;
+        erroredRecords += chunk.recordIds.length;
+        lastError = error;
+      } finally {
+        await settleChunkTransient({ recordIds: chunk.recordIds, pushJobId: pushJob.id, reason: timeoutReason });
+      }
     }
 
-    if (!payload) {
-      throw new Error(timeoutReason);
-    }
-
-    await writePushResult(pushJob.id, payload);
+    const totalInserted = results.reduce((sum, item) => sum + item.inserted, 0);
+    const totalFailed = results.reduce((sum, item) => sum + item.failed, 0) + erroredRecords;
 
     await prisma.dataBatch.update({
       where: { id: pushBatchRecord.id },
       data: {
-        status: payload.failed > 0 ? 'PARTIAL_SUCCESS' : 'SUCCESS',
+        status: totalInserted === 0 ? 'FAILED' : totalFailed > 0 ? 'PARTIAL_SUCCESS' : 'SUCCESS',
         pushedAt: new Date(),
-        pushCount: 1,
-        successCount: payload.failed > 0 ? 0 : 1,
-        failCount: payload.failed > 0 ? 1 : 0
+        pushCount: chunks.length,
+        successCount: chunks.length - failedChunks,
+        failCount: failedChunks,
+        remark: chunks.length > 1 ? `分 ${chunks.length} 片推送，成功 ${totalInserted} 条，失败 ${totalFailed} 条` : undefined
       }
     });
 
-    return { batchNo: pushBatchRecord.batchNo, results: [payload], batchId: pushBatchRecord.id };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : '推送失败';
+    if (results.length === 0 && lastError) throw lastError;
 
-    await prisma.pushJob.update({
-      where: { id: pushJob.id },
-      data: {
-        responseBody: { error: errorMessage },
-        httpStatus: errorMessage.includes('超时') ? 504 : 500,
-        failedCount: pushableRecords.length,
-        status: 'FAILED'
-      }
-    });
-
-    await prisma.pushJobItem.updateMany({
-      where: { pushJobId: pushJob.id },
-      data: {
-        status: 'FAILED',
-        errorMessage
-      }
-    });
-
-    await prisma.dataRecord.updateMany({
-      where: { id: { in: records.map((record) => record.id) } },
-      data: { recordStatus: 'FAILED' }
-    });
-
-    await prisma.dataBatch.update({
-      where: { id: pushBatchRecord.id },
-      data: {
-        status: 'FAILED',
-        pushedAt: new Date(),
-        pushCount: 1,
-        successCount: 0,
-        failCount: 1,
-        remark: errorMessage
-      }
-    });
-
-    throw error;
+    return { batchNo: pushBatchRecord.batchNo, results, batchId: pushBatchRecord.id };
   } finally {
-    await settleTransientStatuses({
-      recordIds: records.map((record) => record.id),
-      batchId: pushBatchRecord.id,
-      pushJobId: pushJob.id,
-      timeoutReason
-    });
+    await settleBatchTransient(pushBatchRecord.id, timeoutReason);
   }
 }

@@ -32,6 +32,8 @@ export function resolveMetricValue(read: number | null, collectable: boolean | u
   return read !== null && read !== 0 ? read : null;
 }
 
+// 评论数是客户接口必填字段：无论媒体采集能力如何，始终保留实际数字，空值由出站层补为 0。
+// 转发和点赞仍按采集能力处理：未采集或不适用传 null。
 export function applyMetricCapability<T extends { commentNum: number | null; forwardNum: number | null; praiseNum: number | null }>(
   record: T,
   sourceName: string | null,
@@ -40,7 +42,7 @@ export function applyMetricCapability<T extends { commentNum: number | null; for
   const capability = sourceName ? capabilityMap.get(sourceName.trim()) : undefined;
   return {
     ...record,
-    commentNum: resolveMetricValue(record.commentNum, capability?.commentCollectable),
+    commentNum: record.commentNum ?? 0,
     forwardNum: resolveMetricValue(record.forwardNum, capability?.forwardCollectable),
     praiseNum: resolveMetricValue(record.praiseNum, capability?.praiseCollectable)
   };
