@@ -189,6 +189,7 @@ model DataRecord {
   title            String        @db.Text
   text             String        @db.LongText
   publishTime      DateTime
+  crawlTime        DateTime?
   author           String
   originType       OriginType
   publisherType    PublisherType @default(SOCIAL)
@@ -203,6 +204,8 @@ model DataRecord {
   sourceRowNo      Int?
   sourceName       String?
   sourceDepartment String?
+  lastPluginClientId   String?
+  lastPluginReceivedAt DateTime?
   recordStatus     RecordStatus  @default(DRAFT)
   isDuplicate      Boolean       @default(false)
   createdById      String
@@ -211,7 +214,10 @@ model DataRecord {
   batch            DataBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
   createdBy        User          @relation("RecordCreatedBy", fields: [createdById], references: [id])
   pushItems        PushJobItem[]
+  lastPluginClient ExternalApiClient? @relation(fields: [lastPluginClientId], references: [id], onDelete: SetNull)
 
+  @@index([lastPluginReceivedAt, id])
+  @@index([lastPluginClientId, lastPluginReceivedAt])
   @@index([createdById, recordStatus, createdAt])
   @@index([recordStatus, createdAt])
   @@index([createdAt])
@@ -341,10 +347,10 @@ model EventRecord {
   title          String?   @db.Text
   link           String?   @db.Text
   summary        String?   @db.Text
-  viewCount      Int       @default(0)
-  forwardCount   Int       @default(0)
-  replyCount     Int       @default(0)
-  praiseCount    Int       @default(0)
+  viewCount      Int?
+  forwardCount   Int?
+  replyCount     Int?
+  praiseCount    Int?
   tendency       String?
   rawData        Json?
   rowNo          Int
@@ -375,6 +381,7 @@ model ExternalApiClient {
   createdBy          User                          @relation("ExternalApiClientCreatedBy", fields: [createdById], references: [id])
   eventScopes        ExternalApiClientEventScope[]
   requestLogs        ExternalApiRequestLog[]
+  pluginRecords      DataRecord[]
 
   @@index([status, createdAt])
   @@index([department, createdAt])

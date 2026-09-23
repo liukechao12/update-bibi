@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { hashApiKey } from '@/lib/external-api';
 
 export async function requireApiUser(request?: Request) {
-  const bearer = request?.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim();
+  const bearer = request?.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim() || request?.headers.get('x-api-key')?.trim();
   if (bearer) {
     const client = await prisma.externalApiClient.findUnique({ where: { apiKeyHash: hashApiKey(bearer) } });
     if (client?.clientCode.startsWith('plugin_') && client.status === 'ACTIVE' && (!client.expiresAt || client.expiresAt.getTime() >= Date.now())) {
@@ -13,6 +13,7 @@ export async function requireApiUser(request?: Request) {
         include: { roles: { include: { role: true } } }
       });
       if (user && user.status === 'ACTIVE') return {
+        pluginClientId: client.id,
         user: {
           id: user.id,
           username: user.username,
@@ -25,6 +26,7 @@ export async function requireApiUser(request?: Request) {
         }
       };
     }
+    return { error: NextResponse.json({ code: 40101, message: '插件凭证无效或已停用' }, { status: 401 }) };
   }
   const user = await getCurrentUser();
   if (!user) {

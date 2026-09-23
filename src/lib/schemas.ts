@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { normalizeContentUrl, normalizePublishTimeToDate } from './mapping';
 
 export const originTypeSchema = z.enum(['media', 'xhs', 'wb', 'wx', 'sph', 'dy', 'zh', 'tb', 'other']);
 export const publisherTypeSchema = z.enum(['MEDIA', 'SOCIAL']);
@@ -9,7 +10,12 @@ export const authorTypeSchema = z.enum(['BLUE_V', 'SELF_MEDIA', 'PERSONAL']).nul
 // 仅允许 http/https，防止 javascript: 等协议造成存储型 XSS
 export const httpUrlSchema = z.string().url().refine((value) => /^https?:\/\//i.test(value), '链接必须以 http:// 或 https:// 开头');
 
-const cleanTextField = z.string().min(1).refine((value) => !value.includes('[object Object]'), '字段包含非法对象序列化内容');
+const cleanTextField = z.string().trim().min(1).refine((value) => !value.includes('[object Object]'), '字段包含非法对象序列化内容');
+const publishTimeSchema = z.string().min(1).refine((value) => {
+  const time = normalizePublishTimeToDate(value).getTime();
+  return Number.isFinite(time) && time <= Date.now();
+}, '发布时间无效或晚于当前时间');
+const crawlTimeSchema = z.string().datetime({ offset: true }).refine((value) => new Date(value).getTime() <= Date.now(), '抓取时间不能晚于当前时间');
 
 export const vendorPublisherTypeSchema = z.enum(['media', 'social']);
 export const vendorAuthorTypeSchema = z.enum(['blue_v', 'self_media', 'personal']).nullable();
@@ -18,8 +24,8 @@ export const vendorPushRecordSchema = z.object({
   textId: z.string().min(1),
   title: cleanTextField,
   text: cleanTextField,
-  publishTime: z.string().min(1),
-  crawlTime: z.string().datetime({ offset: true }).optional(),
+  publishTime: publishTimeSchema,
+  crawlTime: crawlTimeSchema.optional(),
   author: cleanTextField,
   originType: originTypeSchema,
   publisherType: vendorPublisherTypeSchema,
@@ -30,6 +36,9 @@ export const vendorPushRecordSchema = z.object({
   forwardNum: z.number().int().nonnegative().nullable(),
   praiseNum: z.number().int().nonnegative().nullable(),
   viewNum: z.number().int().nonnegative().nullable()
+}).refine((record) => !record.crawlTime || normalizePublishTimeToDate(record.publishTime).getTime() <= new Date(record.crawlTime).getTime(), {
+  message: '发布时间不能晚于抓取时间',
+  path: ['publishTime']
 });
 
 export const vendorPushRequestSchema = z.object({
@@ -61,17 +70,20 @@ export const pushRecordSchema = z.object({
   textId: z.string().min(1),
   title: cleanTextField,
   text: cleanTextField,
-  publishTime: z.string().min(1),
-  crawlTime: z.string().datetime({ offset: true }).optional(),
+  publishTime: publishTimeSchema,
+  crawlTime: crawlTimeSchema.optional(),
   author: cleanTextField,
   originType: originTypeSchema,
   publisherType: publisherTypeSchema,
   authorType: authorTypeSchema,
-  url: httpUrlSchema,
+  url: httpUrlSchema.transform(normalizeContentUrl),
   commentNum: z.number().int().nonnegative(),
   forwardNum: z.number().int().nonnegative().nullable(),
   praiseNum: z.number().int().nonnegative().nullable(),
   viewNum: z.number().int().nonnegative().nullable()
+}).refine((record) => !record.crawlTime || normalizePublishTimeToDate(record.publishTime).getTime() <= new Date(record.crawlTime).getTime(), {
+  message: '发布时间不能晚于抓取时间',
+  path: ['publishTime']
 });
 
 export const pushRequestSchema = z.object({

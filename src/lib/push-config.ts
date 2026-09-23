@@ -95,11 +95,11 @@ export async function getPushConfig() {
   return {
     url,
     token,
-    maxRetries: Math.max(0, Number(maxRetries) || 0),
-    backoffInitialMs: Math.max(1000, Number(backoffInitial) || 5000),
-    backoffMaxMs: Math.max(10000, Number(backoffMax) || 300000),
-    batchSize: Math.max(1, Number(batchSize) || 100),
-    timeoutMs: Math.max(10000, Number(timeoutMs) || 300000),
+    maxRetries: Number.isFinite(Number(maxRetries)) ? Math.max(0, Math.floor(Number(maxRetries))) : 0,
+    backoffInitialMs: Number.isFinite(Number(backoffInitial)) ? Math.max(1000, Number(backoffInitial) || 5000) : 5000,
+    backoffMaxMs: Number.isFinite(Number(backoffMax)) ? Math.max(10000, Number(backoffMax) || 300000) : 300000,
+    batchSize: Number.isFinite(Number(batchSize)) ? Math.min(100, Math.max(1, Math.floor(Number(batchSize) || 100))) : 100,
+    timeoutMs: Number.isFinite(Number(timeoutMs)) ? Math.max(10000, Number(timeoutMs) || 300000) : 300000,
     apiVersion: apiVersion.trim() || '3'
   };
 }

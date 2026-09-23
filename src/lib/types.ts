@@ -39,7 +39,8 @@ export type CurrentUser = {
 export type PushResponse = {
   inserted: number;
   failed: number;
-  errors: Array<{ index: number; error: string }>;
+  httpStatus?: number;
+  errors: Array<{ index: number; error: string; code?: string | number | null }>;
 };
 
 export type ParsedRawRecord = {
@@ -48,6 +49,7 @@ export type ParsedRawRecord = {
   author?: string;
   fansCount?: number | null;
   time?: string;
+  crawlTime?: string;
   title?: string;
   link?: string;
   summary?: string;

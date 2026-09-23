@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isPublishTimeInFuture, mapRawRecordToPushRecord, normalizePublishTimeToDate } from '@/lib/mapping';
 import { extractRawBlocks, findMissingFields, parseRawTextRecords } from '@/lib/raw-parser';
-import { pushRecordsSaveSchema, pushRecordSchema } from '@/lib/schemas';
+import { pushRecordsSaveSchema } from '@/lib/schemas';
 import type { PushRecordInput } from '@/lib/schemas';
 import { prisma } from '@/lib/prisma';
 import { requireApiUser } from '@/lib/api-auth';
@@ -28,8 +28,12 @@ function resolveMediaLibraryName(domain: string, authorName: string) {
 
 
 export async function POST(request: Request) {
+  const receivedAt = new Date();
   const auth = await requireApiUser(request);
   if ('error' in auth) return auth.error;
+  const pluginSource = auth.pluginClientId
+    ? { lastPluginClientId: auth.pluginClientId, lastPluginReceivedAt: receivedAt }
+    : {};
 
   const body = await request.json().catch(() => ({}));
   const sourceText = String(body?.sourceText ?? '');
@@ -40,17 +44,21 @@ export async function POST(request: Request) {
   }
 
   const rawBlocks = sourceText.trim() ? extractRawBlocks(sourceText) : [];
-  const futureRows = sourceText.trim() ? parseRawTextRecords(sourceText).map((item, index) => ({ index, future: isPublishTimeInFuture(item.time) })).filter((item) => item.future) : [];
-  if (futureRows.length > 0) {
-    return NextResponse.json({ code: 40005, message: '存在发布时间晚于当前时间的记录，请检查相对时间换算', futureRows }, { status: 422 });
-  }
   const missing = sourceText.trim() ? findMissingFields(sourceText) : [];
   const parsedRawRecords = sourceText.trim() ? parseRawTextRecords(sourceText) : [];
   const rawRecords = Array.isArray(body?.records)
-    ? body.records
-    : parsedRawRecords.map((item) => mapRawRecordToPushRecord(item));
+    ? body.records.map((item: unknown, index: number) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+      const record = item as Record<string, unknown>;
+      return { ...record, crawlTime: record.crawlTime === undefined ? parsedRawRecords[index]?.crawlTime ?? receivedAt.toISOString() : record.crawlTime };
+    })
+    : parsedRawRecords.map((item) => mapRawRecordToPushRecord({ ...item, crawlTime: item.crawlTime ?? receivedAt.toISOString() }));
 
   const batchCheck = pushRecordsSaveSchema.safeParse({ version: '3', records: rawRecords });
+  const futureRows = parsedRawRecords.map((item, index) => ({ index, future: isPublishTimeInFuture(item.time, receivedAt) })).filter((item) => item.future);
+  if (futureRows.length > 0) {
+    return NextResponse.json({ code: 40005, message: '存在发布时间晚于当前时间的记录，请检查相对时间换算', futureRows }, { status: 422 });
+  }
   if (!batchCheck.success) {
     return NextResponse.json(
       {
@@ -63,39 +71,12 @@ export async function POST(request: Request) {
     );
   }
 
-  // 逐条校验：跳过非法记录（如链接为空、计数非法），避免单条异常导致整批不保存
-  const validRecords: PushRecordInput[] = [];
-  const validTendencies: Array<string | null> = [];
-  const invalidIndexes: number[] = [];
-  for (let index = 0; index < rawRecords.length; index += 1) {
-    const parsed = pushRecordSchema.safeParse(rawRecords[index]);
-    if (parsed.success) {
-      validRecords.push(parsed.data);
-      validTendencies.push(
-        parsedRawRecords[index]?.tendency || selectedTendency ||
-          (Array.isArray(body?.records) &&
-          typeof rawRecords[index] === 'object' &&
-          rawRecords[index] !== null &&
-          'tendency' in (rawRecords[index] as object)
-            ? String((rawRecords[index] as { tendency?: unknown }).tendency ?? '') || null
-            : null)
-      );
-    } else {
-      invalidIndexes.push(index);
-    }
-  }
-
-  if (validRecords.length === 0) {
-    return NextResponse.json(
-      {
-        code: 40002,
-        message: `没有可保存的有效记录${invalidIndexes.length ? `（${invalidIndexes.length} 条记录字段不合法，请检查后重试）` : ''}`,
-        missingFields: missing,
-        rawBlocks
-      },
-      { status: 400 }
-    );
-  }
+  // 整批 schema 通过后才进入业务分支，使用校验后的值并保留原始行号。
+  const validRecords = batchCheck.data.records;
+  const validTendencies: Array<string | null> = validRecords.map((_, index) =>
+    parsedRawRecords[index]?.tendency || selectedTendency ||
+    (Array.isArray(body?.records) ? String(rawRecords[index].tendency ?? '') || null : null)
+  );
 
   const currentUser = await prisma.user.findUnique({ where: { id: auth.user.id } });
   if (!currentUser) {
@@ -206,17 +187,22 @@ export async function POST(request: Request) {
     }
   });
 
-  const savedRecords = [] as Array<{ id: string; textId: string }>;
+  const savedRecords: Array<{ id: string; record: PushRecordInput; tendency: string | null; rowNo: number }> = [];
   const duplicateRecords: Array<{ index: number; textId: string }> = [];
   const updatedRecords: Array<{ index: number; textId: string }> = [];
+  const blockedRecords: Array<{ index: number; textId: string; message: string }> = [];
   for (let index = 0; index < uniqueRecords.length; index += 1) {
     const record = uniqueRecords[index];
     const tendency = (uniqueTendencies[index] ?? selectedTendency) || null;
     const publishTime = normalizePublishTimeToDate(record.publishTime);
-    const rawSourceText = JSON.stringify(sourceText.trim() ? parsedRawRecords[uniqueSourceIndexes[index]] ?? record : record);
-    const sourceRow = rawRecords[uniqueSourceIndexes[index]] as Record<string, unknown> | undefined;
-    const parsedSource = (parsedRawRecords[uniqueSourceIndexes[index]] as { source?: string } | undefined)?.source;
-    const bodySource = typeof sourceRow?.source === 'string' ? sourceRow.source : typeof sourceRow?.['来源'] === 'string' ? String(sourceRow['来源']) : '';
+    const crawlTime = record.crawlTime ? new Date(record.crawlTime) : receivedAt;
+    const sourceIndex = uniqueSourceIndexes[index];
+    const sourceRow = rawRecords[sourceIndex] as Record<string, unknown> | undefined;
+    const rawSourceText = JSON.stringify(sourceText.trim()
+      ? { ...parsedRawRecords[sourceIndex], sourceText: rawBlocks[sourceIndex] }
+      : body.records[sourceIndex]);
+    const parsedSource = parsedRawRecords[sourceIndex]?.source;
+    const bodySource = typeof sourceRow?.sourceName === 'string' ? sourceRow.sourceName : typeof sourceRow?.source === 'string' ? sourceRow.source : typeof sourceRow?.['来源'] === 'string' ? sourceRow['来源'] : '';
     const sourceName = (parsedSource ?? '').trim() || bodySource.trim() || null;
     const existing = await prisma.dataRecord.findFirst({
       where: {
@@ -229,25 +215,41 @@ export async function POST(request: Request) {
     });
 
     if (existing) {
+      previewRecords[index].textId = existing.textId;
       const changed = existing.title !== record.title || existing.text !== record.text ||
         existing.publishTime.getTime() !== publishTime.getTime() || existing.author !== record.author ||
         existing.originType !== record.originType || existing.publisherType !== record.publisherType ||
         existing.authorType !== record.authorType || existing.url !== record.url ||
         existing.commentNum !== record.commentNum || existing.forwardNum !== record.forwardNum ||
         existing.praiseNum !== record.praiseNum || existing.viewNum !== record.viewNum ||
-        existing.tendency !== tendency;
+        existing.tendency !== tendency || existing.sourceName !== sourceName;
 
       if (!changed) {
-        duplicateRecords.push({ index, textId: record.textId });
+        if (auth.pluginClientId) {
+          await prisma.dataRecord.updateMany({
+            where: { id: existing.id, OR: [{ lastPluginReceivedAt: null }, { lastPluginReceivedAt: { lte: receivedAt } }] },
+            data: pluginSource
+          });
+        }
+        duplicateRecords.push({ index, textId: existing.textId });
         continue;
       }
 
-      await prisma.dataRecord.update({
-        where: { id: existing.id },
+      // 写入时再次检查状态，避免查询后开始推送的记录被覆盖；不修复历史悬挂任务。
+      const updated = await prisma.dataRecord.updateMany({
+        where: {
+          id: existing.id,
+          recordStatus: { not: 'PUSHING' },
+          pushItems: { none: { OR: [
+            { status: { in: ['SENDING', 'RETRYING'] } },
+            { pushJob: { status: { in: ['SENDING', 'RETRYING'] } } }
+          ] } }
+        },
         data: {
           title: record.title,
           text: record.text,
           publishTime,
+          crawlTime,
           author: record.author,
           originType: record.originType,
           publisherType: record.publisherType,
@@ -259,14 +261,19 @@ export async function POST(request: Request) {
           viewNum: record.viewNum,
           tendency,
           sourceDepartment,
+          ...pluginSource,
           recordStatus: 'PENDING_PUSH',
           rawSourceText,
           sourceName,
-          sourceRowNo: uniqueSourceIndexes[index] + 1
+          sourceRowNo: sourceIndex + 1
         }
       });
-      updatedRecords.push({ index, textId: record.textId });
-      savedRecords.push({ id: existing.id, textId: existing.textId });
+      if (updated.count === 0) {
+        blockedRecords.push({ index: sourceIndex, textId: existing.textId, message: '记录正在推送，禁止覆盖在途内容，请稍后重试' });
+        continue;
+      }
+      updatedRecords.push({ index, textId: existing.textId });
+      savedRecords.push({ id: existing.id, record: { ...record, textId: existing.textId }, tendency, rowNo: sourceIndex + 1 });
       continue;
     }
 
@@ -277,6 +284,7 @@ export async function POST(request: Request) {
         title: record.title,
         text: record.text,
         publishTime,
+        crawlTime,
         author: record.author,
         originType: record.originType,
         publisherType: record.publisherType,
@@ -288,14 +296,16 @@ export async function POST(request: Request) {
         viewNum: record.viewNum,
         tendency,
         sourceDepartment,
+        ...pluginSource,
         recordStatus: 'PENDING_PUSH',
         createdById: currentUser.id,
         rawSourceText,
         sourceName,
-        sourceRowNo: uniqueSourceIndexes[index] + 1
+        sourceRowNo: sourceIndex + 1
       }
     });
-    savedRecords.push({ id: saved.id, textId: saved.textId });
+    previewRecords[index].textId = saved.textId;
+    savedRecords.push({ id: saved.id, record: { ...record, textId: saved.textId }, tendency, rowNo: sourceIndex + 1 });
   }
 
   await prisma.dataBatch.update({
@@ -303,33 +313,31 @@ export async function POST(request: Request) {
     data: {
       validCount: savedRecords.length,
       invalidCount: uniqueRecords.length - savedRecords.length,
-      remark: `${sourceText.trim() ? '粘贴解析保存' : '接口保存'}，新增 ${savedRecords.length - updatedRecords.length} 条，更新 ${updatedRecords.length} 条，跳过未变化 ${duplicateRecords.length} 条`
+      remark: `${sourceText.trim() ? '粘贴解析保存' : '接口保存'}，新增 ${savedRecords.length - updatedRecords.length} 条，更新 ${updatedRecords.length} 条，跳过未变化 ${duplicateRecords.length} 条，推送中禁止覆盖 ${blockedRecords.length} 条`
     }
   });
 
-  const eventSync = await syncDailyCollectionEvents(uniqueRecords
-    .map((record, index) => ({
-      record,
-      tendency: (uniqueTendencies[index] ?? selectedTendency) || null,
-      rowNo: uniqueSourceIndexes[index] + 1
-    }))
-    .filter((item) => savedRecords.some((saved) => saved.textId === item.record.textId)));
+  const eventSync = await syncDailyCollectionEvents(savedRecords.map(({ record, tendency, rowNo }) => ({ record, tendency, rowNo })));
 
   return NextResponse.json({
     total: rawRecords.length,
     saved: savedRecords.length,
     duplicate: duplicateRecords.length,
     updated: updatedRecords.length,
+    blocked: blockedRecords.length,
+    blockedRecords,
     eventSync,
     savedRecordIds: savedRecords.map((item) => item.id),
     preview: previewRecords,
     missingFields: missingForResponse,
     rawBlocks,
     canPush: !hasMissing && savedRecords.length > 0,
-    warning: hasMissing
-      ? '检测到必填项缺失，请先补齐后再推送'
-      : duplicateRecords.length > 0
-        ? `解析完成：新增或更新 ${savedRecords.length} 条，跳过未变化记录 ${duplicateRecords.length} 条`
-        : '解析完成，已保存为待推送记录'
+    warning: blockedRecords.length > 0
+      ? `已保存 ${savedRecords.length} 条，${blockedRecords.length} 条记录正在推送，禁止覆盖在途内容，请稍后重试`
+      : hasMissing
+        ? '检测到必填项缺失，请先补齐后再推送'
+        : duplicateRecords.length > 0
+          ? `解析完成：新增或更新 ${savedRecords.length} 条，跳过未变化记录 ${duplicateRecords.length} 条`
+          : '解析完成，已保存为待推送记录'
   });
 }

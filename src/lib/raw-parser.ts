@@ -1,9 +1,18 @@
 import { ParsedRawRecord } from '@/lib/types';
+import { normalizePublishTimeToDate } from '@/lib/mapping';
 
 const REQUIRED_LABELS = ['倾向性', '来源', '作者', '时间', '标题', '链接', '简述', '评论数'];
-const OPTIONAL_LABELS = ['粉丝数', '转发数', '转发量', '点赞数', '点赞量', '阅读数', '阅读量', '浏览量', '认证类型', '摘要'];
+const CRAWL_TIME_LABELS = ['采集时间', '抓取时间', '爬取时间', 'crawlTime'];
+const OPTIONAL_LABELS = ['粉丝数', '转发数', '转发量', '点赞数', '点赞量', '阅读数', '阅读量', '浏览量', '认证类型', '摘要', ...CRAWL_TIME_LABELS];
 const ALL_LABELS = [...REQUIRED_LABELS, ...OPTIONAL_LABELS];
 const SUMMARY_LABELS = ['简述', '摘要'];
+
+export function normalizeRawCrawlTime(value?: string): string | undefined {
+  if (value === undefined) return undefined;
+  const date = normalizePublishTimeToDate(value);
+  // 无时区原文按北京时间解释；非法值保留给 schema 拒绝，不能替换成当前时间。
+  return Number.isFinite(date.getTime()) ? date.toISOString() : value;
+}
 
 function normalizeLine(line: string) {
   return line.trim();
@@ -77,6 +86,7 @@ export function parseRawTextRecords(sourceText: string): ParsedRawRecord[] {
     author: readValue(block, '作者'),
     fansCount: toNumber(readValue(block, '粉丝数')),
     time: readValue(block, '时间'),
+    crawlTime: normalizeRawCrawlTime(readValueAny(block, CRAWL_TIME_LABELS) || undefined),
     title: readValue(block, '标题'),
     link: readValue(block, '链接'),
     summary: readValueAny(block, SUMMARY_LABELS),

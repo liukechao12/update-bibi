@@ -69,6 +69,15 @@ function toInt(value: string | undefined | null): number {
   return Number.isFinite(num) ? num : 0;
 }
 
+function toInteractionCount(value: string | undefined | null): number | null {
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim().replace(/，/g, ',');
+  if (!/^\+?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(normalized)) return null;
+  const num = Number(normalized.replace(/,/g, ''));
+  // 缺失和无效互动数均记为 null；仅保留 Prisma Int 范围内的非负整数。
+  return Number.isInteger(num) && num >= 0 && num <= 2147483647 ? num : null;
+}
+
 function toDate(value: string): Date | null {
   if (!value) return null;
   const normalized = value.replace(/[./]/g, '-').replace('年', '-').replace('月', '-').replace('日', '');
@@ -133,10 +142,10 @@ function mapToEventRecord(
     title: getField(raw, ['标题', '博文标题']),
     link,
     summary: getField(raw, ['摘要', '正文', '内容']),
-    viewCount: toInt(getField(raw, ['浏览数', '阅读数', '阅读量', '浏览量'])),
-    forwardCount: toInt(getField(raw, ['转载数', '转发数', '转发量'])),
-    replyCount: toInt(getField(raw, ['回复数', '评论数', '评论量'])),
-    praiseCount: toInt(getField(raw, ['点赞数', '点赞量'])),
+    viewCount: toInteractionCount(getField(raw, ['浏览数', '阅读数', '阅读量', '浏览量'])),
+    forwardCount: toInteractionCount(getField(raw, ['转载数', '转发数', '转发量'])),
+    replyCount: toInteractionCount(getField(raw, ['回复数', '评论数', '评论量'])),
+    praiseCount: toInteractionCount(getField(raw, ['点赞数', '点赞量'])),
     tendency: getField(raw, ['倾向性', '情感倾向']),
     rawData: raw,
     rowNo: item.rowNo

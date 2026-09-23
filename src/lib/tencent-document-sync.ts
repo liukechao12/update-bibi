@@ -6,6 +6,7 @@ import { pushRequestSchema } from '@/lib/schemas';
 import type { PushRecordInput } from '@/lib/schemas';
 import { pushExistingRecords } from '@/lib/push-workflow';
 import { syncDailyCollectionEvents } from '@/lib/daily-event-sync';
+import { normalizeRawCrawlTime } from '@/lib/raw-parser';
 
 export type DocumentSyncTrigger = 'MANUAL' | 'SCHEDULED';
 
@@ -51,12 +52,22 @@ function buildRawRows(body: unknown, sheetId: string): SyncRow[] {
   }).filter((item) => Object.values(item.raw).some(Boolean));
 }
 
-function changed(existing: { title: string; text: string; publishTime: Date; author: string; url: string; commentNum: number; forwardNum: number | null; praiseNum: number | null; viewNum: number | null; tendency: string | null }, record: PushRecordInput, tendency: string) {
-  const publishTime = normalizePublishTimeToDate(record.publishTime);
-  return existing.title !== record.title || existing.text !== record.text || existing.publishTime.getTime() !== publishTime.getTime() || existing.author !== record.author || existing.url !== record.url || existing.commentNum !== record.commentNum || existing.forwardNum !== record.forwardNum || existing.praiseNum !== record.praiseNum || existing.viewNum !== record.viewNum || existing.tendency !== tendency;
+function changed(existing: {
+  title: string; text: string; publishTime: Date; author: string; url: string;
+  originType: string; publisherType: string; authorType: string | null; sourceName: string | null;
+  commentNum: number; forwardNum: number | null; praiseNum: number | null; viewNum: number | null; tendency: string | null;
+}, record: PushRecordInput, tendency: string, sourceName: string | null, publishTime: Date) {
+  return existing.title !== record.title || existing.text !== record.text ||
+    existing.publishTime.getTime() !== publishTime.getTime() || existing.author !== record.author ||
+    existing.originType !== record.originType || existing.publisherType !== record.publisherType ||
+    existing.authorType !== record.authorType || existing.sourceName !== sourceName ||
+    existing.url !== record.url || existing.commentNum !== record.commentNum ||
+    existing.forwardNum !== record.forwardNum || existing.praiseNum !== record.praiseNum ||
+    existing.viewNum !== record.viewNum || existing.tendency !== tendency;
 }
 
 export async function runTencentDocumentSync(triggerType: DocumentSyncTrigger) {
+  const receivedAt = new Date();
   const fileId = process.env.TENCENT_DOC_FILE_ID || '';
   const [sheetIdsConfig, rangeConfig] = await Promise.all([
     getConfig(CONFIG_KEYS.TENCENT_DOC_SHEET_IDS),
@@ -80,6 +91,20 @@ export async function runTencentDocumentSync(triggerType: DocumentSyncTrigger) {
       const body = await getTencentDocSheetData(sheetId, range);
       rows.push(...buildRawRows(body, sheetId));
     }
+    const preparedRows = rows.map((item) => {
+      const tendency = field(item.raw, ['倾向性']);
+      const summary = field(item.raw, ['简述', '摘要']);
+      const link = field(item.raw, ['链接']);
+      const record = mapRawRecordToPushRecord({
+        tendency, source: field(item.raw, ['来源']), author: field(item.raw, ['作者']), time: field(item.raw, ['时间']), title: field(item.raw, ['标题']), link, summary,
+        crawlTime: normalizeRawCrawlTime(field(item.raw, ['采集时间', '抓取时间', '爬取时间', 'crawlTime']) || undefined) ?? receivedAt.toISOString(),
+        commentNum: toNumber(field(item.raw, ['评论数'])) ?? 0,
+        forwardNum: toNumber(field(item.raw, ['转发数', '转发量'])),
+        praiseNum: toNumber(field(item.raw, ['点赞数', '点赞量'])),
+        viewNum: toNumber(field(item.raw, ['阅读数', '阅读量', '浏览量']))
+      });
+      return { item, tendency, link, validated: pushRequestSchema.shape.records.element.safeParse(record) };
+    });
     const user = await prisma.user.findFirst({ where: { status: 'ACTIVE' }, orderBy: { createdAt: 'asc' } });
     if (!user) throw new Error('未找到启用用户');
 
@@ -90,29 +115,52 @@ export async function runTencentDocumentSync(triggerType: DocumentSyncTrigger) {
     let updatedCount = 0;
     let skippedCount = 0;
 
-    for (const item of rows) {
-      const tendency = field(item.raw, ['倾向性']);
-      const summary = field(item.raw, ['简述', '摘要']);
-      const link = field(item.raw, ['链接']);
+    for (const { item, tendency, link, validated } of preparedRows) {
       if (!tendency) { invalidRows.push({ rowNo: item.rowNo, reason: '缺少倾向性' }); continue; }
       if (!link || !field(item.raw, ['标题']) || !field(item.raw, ['时间'])) { invalidRows.push({ rowNo: item.rowNo, reason: '缺少标题、时间或链接' }); continue; }
+      if (!validated.success) {
+        invalidRows.push({ rowNo: item.rowNo, reason: isPublishTimeInFuture(field(item.raw, ['时间']), receivedAt) ? '发布时间晚于当前时间' : '字段格式不合法' });
+        continue;
+      }
 
-      const record = mapRawRecordToPushRecord({
-        tendency, source: field(item.raw, ['来源']), author: field(item.raw, ['作者']), time: field(item.raw, ['时间']), title: field(item.raw, ['标题']), link, summary,
-        commentNum: toNumber(field(item.raw, ['评论数'])) ?? 0,
-        forwardNum: toNumber(field(item.raw, ['转发数', '转发量'])),
-        praiseNum: toNumber(field(item.raw, ['点赞数', '点赞量'])),
-        viewNum: toNumber(field(item.raw, ['阅读数', '阅读量', '浏览量']))
-      });
-      if (!pushRequestSchema.shape.records.element.safeParse(record).success) { invalidRows.push({ rowNo: item.rowNo, reason: '字段格式不合法' }); continue; }
-      if (isPublishTimeInFuture(record.publishTime)) { invalidRows.push({ rowNo: item.rowNo, reason: '发布时间晚于当前时间' }); continue; }
-
+      const record = validated.data;
+      const publishTime = normalizePublishTimeToDate(record.publishTime);
+      const crawlTime = record.crawlTime ? new Date(record.crawlTime) : receivedAt;
+      const sourceName = field(item.raw, ['来源']).trim() || null;
       const existing = await prisma.dataRecord.findFirst({ where: { OR: [{ textId: record.textId }, { url: record.url }] }, orderBy: { createdAt: 'asc' } });
-      if (existing && !changed(existing, record, tendency)) { skippedCount += 1; continue; }
-      const data = { title: record.title, text: record.text, publishTime: normalizePublishTimeToDate(record.publishTime), author: record.author, originType: record.originType, publisherType: record.publisherType, authorType: record.authorType, url: record.url, commentNum: record.commentNum, forwardNum: record.forwardNum, praiseNum: record.praiseNum, viewNum: record.viewNum, tendency, sourceName: field(item.raw, ['来源']) || null, rawSourceText: JSON.stringify({ sheetId: item.sheetId, ...item.raw }), sourceRowNo: item.rowNo, recordStatus: 'PENDING_PUSH' as const };
-      const saved = existing ? await prisma.dataRecord.update({ where: { id: existing.id }, data }) : await prisma.dataRecord.create({ data: { ...data, batchId: batch.id, textId: record.textId, createdById: user.id } });
-      affected.push({ id: saved.id, payload: record, tendency, rowNo: item.rowNo, sheetId: item.sheetId });
-      if (existing) updatedCount += 1; else createdCount += 1;
+      if (existing && !changed(existing, record, tendency, sourceName, publishTime)) { skippedCount += 1; continue; }
+      const data = {
+        title: record.title, text: record.text, publishTime, crawlTime, author: record.author,
+        originType: record.originType, publisherType: record.publisherType, authorType: record.authorType,
+        url: record.url, commentNum: record.commentNum, forwardNum: record.forwardNum,
+        praiseNum: record.praiseNum, viewNum: record.viewNum, tendency, sourceName,
+        rawSourceText: JSON.stringify({ ...item.raw, sheetId: item.sheetId }),
+        sourceRowNo: item.rowNo, recordStatus: 'PENDING_PUSH' as const
+      };
+      let saved: { id: string; textId: string };
+      if (existing) {
+        const updated = await prisma.dataRecord.updateMany({
+          where: {
+            id: existing.id,
+            recordStatus: { not: 'PUSHING' },
+            pushItems: { none: { OR: [
+              { status: { in: ['SENDING', 'RETRYING'] } },
+              { pushJob: { status: { in: ['SENDING', 'RETRYING'] } } }
+            ] } }
+          },
+          data
+        });
+        if (updated.count === 0) {
+          invalidRows.push({ rowNo: item.rowNo, reason: '记录正在推送，禁止覆盖在途内容，请稍后重试' });
+          continue;
+        }
+        saved = existing;
+        updatedCount += 1;
+      } else {
+        saved = await prisma.dataRecord.create({ data: { ...data, batchId: batch.id, textId: record.textId, createdById: user.id } });
+        createdCount += 1;
+      }
+      affected.push({ id: saved.id, payload: { ...record, textId: saved.textId }, tendency, rowNo: item.rowNo, sheetId: item.sheetId });
     }
 
     const eventSync = await syncDailyCollectionEvents(affected.map((item) => ({ record: item.payload, tendency: item.tendency, rowNo: item.rowNo })));
@@ -130,7 +178,14 @@ export async function runTencentDocumentSync(triggerType: DocumentSyncTrigger) {
     const status = pushError || failedCount ? 'PARTIAL_SUCCESS' : 'SUCCESS';
     const result = { totalRows: rows.length, createdCount, updatedCount, skippedCount, invalidCount: invalidRows.length, pushedCount, failedCount, eventSync, invalidRows, pushError };
     await prisma.dataBatch.update({ where: { id: batch.id }, data: { validCount: affected.length, invalidCount: invalidRows.length + skippedCount, status: failedCount ? 'PARTIAL_SUCCESS' : 'SUCCESS', pushedAt: new Date(), pushCount: affected.length ? 1 : 0, successCount: failedCount ? 0 : affected.length, failCount: failedCount ? 1 : 0, remark: `腾讯文档：新增 ${createdCount} 条，更新 ${updatedCount} 条，跳过 ${skippedCount} 条，无效 ${invalidRows.length} 条` } });
-    await prisma.documentSyncLog.update({ where: { id: log.id }, data: { ...result, status, details: { invalidRows, eventSync }, errorMessage: pushError || null, finishedAt: new Date() } });
+    await prisma.documentSyncLog.update({
+      where: { id: log.id },
+      data: {
+        totalRows: rows.length, createdCount, updatedCount, skippedCount, invalidCount: invalidRows.length,
+        pushedCount, failedCount, status, details: { invalidRows, eventSync },
+        errorMessage: pushError || null, finishedAt: new Date()
+      }
+    });
     return { id: log.id, status, ...result };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

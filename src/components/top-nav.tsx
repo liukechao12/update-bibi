@@ -8,6 +8,7 @@ const navItems: NavItem[] = [
   { href: '/excel-import', label: 'Excel 导入', icon: 'excel' },
   { href: '/batches', label: '批次管理', icon: 'batch' },
   { href: '/records', label: '数据记录', icon: 'record' },
+  { href: '/plugin-records', label: '插件数据', icon: 'api', adminOnly: true },
   { href: '/event-records', label: '事件数据', icon: 'event' },
   { href: '/push-jobs', label: '推送日志', icon: 'push' },
   { href: '/profile', label: '个人中心', icon: 'profile' },

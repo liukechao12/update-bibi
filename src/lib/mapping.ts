@@ -131,47 +131,83 @@ export function normalizeAuthorType(options: {
   return classifyAuthorType(options);
 }
 
+const BEIJING_OFFSET_MINUTES = 8 * 60;
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function publishDateFromParts(
+  year: number, month: number, day: number,
+  hour: number, minute: number, second: number, millisecond: number,
+  zone?: string, weekday?: string
+): Date {
+  let offsetMinutes = BEIJING_OFFSET_MINUTES;
+  if (zone === 'Z') {
+    offsetMinutes = 0;
+  } else if (zone) {
+    const offset = zone.match(/^([+-])(\d{2}):?(\d{2})$/);
+    if (!offset || Number(offset[2]) > 23 || Number(offset[3]) > 59) return new Date(NaN);
+    offsetMinutes = (Number(offset[2]) * 60 + Number(offset[3])) * (offset[1] === '+' ? 1 : -1);
+  }
+
+  // 仅用 UTC 方法构造壁钟时间，并逐项回读，拒绝 Date 自动修正的溢出日期。
+  // setUTCFullYear 避免 Date.UTC 将 00–99 年隐式解释为 1900–1999 年。
+  const wallTime = new Date(0);
+  wallTime.setUTCFullYear(year, month - 1, day);
+  wallTime.setUTCHours(hour, minute, second, millisecond);
+  if (
+    year < 1 || year > 9999 ||
+    wallTime.getUTCFullYear() !== year || wallTime.getUTCMonth() !== month - 1 ||
+    wallTime.getUTCDate() !== day || wallTime.getUTCHours() !== hour ||
+    wallTime.getUTCMinutes() !== minute || wallTime.getUTCSeconds() !== second ||
+    (weekday !== undefined && WEEKDAY_NAMES[wallTime.getUTCDay()] !== weekday)
+  ) return new Date(NaN);
+
+  const date = new Date(wallTime.getTime() - offsetMinutes * 60_000);
+  const beijingYear = new Date(date.getTime() + BEIJING_OFFSET_MINUTES * 60_000).getUTCFullYear();
+  // 输出必须能表示为四位年份的北京时间。
+  return beijingYear >= 1 && beijingYear <= 9999 ? date : new Date(NaN);
+}
+
 export function normalizePublishTime(value?: string): string {
-  if (!value) return new Date().toISOString().slice(0, 19).replace('T', ' ');
-
-  // Excel 读出的 Date toString 格式：Mon Jul 27 2026 08:24:00 GMT+0800 (China Standard Time)
-  const jsDateMatch = value.match(/^[A-Za-z]{3} ([A-Za-z]{3}) (\d{2}) (\d{4}) (\d{2}):(\d{2}):(\d{2})/);
-  if (jsDateMatch) {
-    const monthMap: Record<string, string> = {
-      Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
-      Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12'
-    };
-    const month = monthMap[jsDateMatch[1]] ?? '01';
-    return `${jsDateMatch[3]}-${month}-${jsDateMatch[2]} ${jsDateMatch[4]}:${jsDateMatch[5]}:${jsDateMatch[6]}`;
-  }
-
-  // ISO 格式：2026-07-27T08:24:00.000Z
-  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
-  if (isoMatch) {
-    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]} ${isoMatch[4]}:${isoMatch[5]}:${isoMatch[6]}`;
-  }
-
-  const normalized = value.replace(/[./]/g, '-').replace('年', '-').replace('月', '-').replace('日', '');
-  if (normalized.includes(':') && normalized.length >= 16) {
-    const parts = normalized.split(' ');
-    if (parts.length === 2) {
-      const datePart = parts[0].split('-').map((part) => part.padStart(2, '0')).join('-');
-      return `${datePart} ${parts[1].slice(0, 8)}`;
-    }
-  }
-  return normalized;
+  const date = normalizePublishTimeToDate(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Date(date.getTime() + BEIJING_OFFSET_MINUTES * 60_000)
+    .toISOString().slice(0, 19).replace('T', ' ');
 }
 
 export function normalizePublishTimeToDate(value?: string): Date {
-  const normalized = normalizePublishTime(value);
-  const localMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  const date = localMatch
-    ? new Date(Number(localMatch[1]), Number(localMatch[2]) - 1, Number(localMatch[3]), Number(localMatch[4]), Number(localMatch[5]), Number(localMatch[6] ?? 0))
-    : new Date(normalized.replace(' ', 'T'));
-  if (Number.isNaN(date.getTime())) {
-    return new Date();
+  if (typeof value !== 'string' || !value.trim()) return new Date(NaN);
+  const raw = value.trim();
+  // 不使用宿主时区或宽松的 Date.parse；无时区日期/时间固定按 UTC+8 解释。
+  const normalized = raw.replace(/^(\d{4})年(\d{1,2})月(\d{1,2})日 */, '$1-$2-$3 ').trim();
+  const numeric = normalized.match(/^(\d{4})([-/.])(\d{1,2})\2(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:?\d{2})?)?$/);
+  if (numeric) {
+    return publishDateFromParts(
+      Number(numeric[1]), Number(numeric[3]), Number(numeric[4]),
+      Number(numeric[5] ?? 0), Number(numeric[6] ?? 0), Number(numeric[7] ?? 0),
+      Number((numeric[8] ?? '').padEnd(3, '0').slice(0, 3)), numeric[9]
+    );
   }
-  return date;
+
+  // Excel 中的 Date.toString()，必须完整匹配并尊重 GMT offset，不能截掉时区。
+  const jsDate = raw.match(/^([A-Za-z]{3}) ([A-Za-z]{3}) (\d{1,2}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT([+-]\d{4})?(?: \([^()\r\n]+\))?$/);
+  if (jsDate) {
+    return publishDateFromParts(
+      Number(jsDate[4]), MONTH_NAMES.indexOf(jsDate[2]) + 1, Number(jsDate[3]),
+      Number(jsDate[5]), Number(jsDate[6]), Number(jsDate[7]), 0, jsDate[8] ?? 'Z', jsDate[1]
+    );
+  }
+
+  // Date.toUTCString()：Mon, 27 Jul 2026 00:24:00 GMT。
+  const utcDate = raw.match(/^([A-Za-z]{3}), (\d{1,2}) ([A-Za-z]{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/);
+  if (utcDate) {
+    return publishDateFromParts(
+      Number(utcDate[4]), MONTH_NAMES.indexOf(utcDate[3]) + 1, Number(utcDate[2]),
+      Number(utcDate[5]), Number(utcDate[6]), Number(utcDate[7]), 0, 'Z', utcDate[1]
+    );
+  }
+  // 交由调用方 schema 拒绝脏数据；不抛异常，也不以当前时间伪造发布时间。
+  return new Date(NaN);
 }
 
 export function isPublishTimeInFuture(value?: string, now = new Date()) {
@@ -179,18 +215,38 @@ export function isPublishTimeInFuture(value?: string, now = new Date()) {
   return publishTime.getTime() > now.getTime();
 }
 
+// 只移除明确的营销追踪键；from/source/ref/scene 等含义不明确的参数必须保留。
+const TRACKING_QUERY_KEYS = new Set(['spm', 'gclid', 'dclid', 'fbclid', 'msclkid']);
+
+function normalizeContentQuery(search: string): string {
+  const params = new URLSearchParams(search);
+  for (const key of Array.from(params.keys())) {
+    if (/^utm_/i.test(key) || TRACKING_QUERY_KEYS.has(key.toLowerCase())) params.delete(key);
+  }
+  // 稳定按键排序，但保留重复键的值顺序（它可能影响路由/身份）。
+  params.sort();
+  return params.toString();
+}
+
 export function normalizeContentUrl(value?: string) {
   const raw = value?.trim() ?? '';
   if (!raw) return '';
   try {
     const url = new URL(raw);
-    url.hash = '';
-    url.search = '';
+    url.search = normalizeContentQuery(url.search);
+    // hash 可能是 SPA 路由或内容标识，不能当作追踪信息一律删除。
     url.hostname = url.hostname.toLowerCase().replace(/^www\./, '');
     url.pathname = url.pathname.replace(/\/$/, '') || '/';
     return url.toString();
   } catch {
-    return raw.replace(/[?#].*$/, '').replace(/\/$/, '').trim();
+    // 无协议或其他不能由 URL 解析的输入，也不能丢失 query/hash 中的身份信息。
+    const hashIndex = raw.indexOf('#');
+    const hash = hashIndex < 0 ? '' : raw.slice(hashIndex);
+    const beforeHash = hashIndex < 0 ? raw : raw.slice(0, hashIndex);
+    const queryIndex = beforeHash.indexOf('?');
+    const path = (queryIndex < 0 ? beforeHash : beforeHash.slice(0, queryIndex)).replace(/\/$/, '').trim();
+    const query = queryIndex < 0 ? '' : normalizeContentQuery(beforeHash.slice(queryIndex + 1));
+    return `${path}${query ? `?${query}` : ''}${hash}`;
   }
 }
 
@@ -233,7 +289,7 @@ export function mapRawRecordToPushRecord(raw: ParsedRawRecord): PushRecord {
     title,
     text,
     publishTime: normalizePublishTime(raw.time),
-    crawlTime: new Date().toISOString(),
+    crawlTime: raw.crawlTime ?? new Date().toISOString(),
     author: raw.author?.trim() || '未知作者',
     originType,
     publisherType,

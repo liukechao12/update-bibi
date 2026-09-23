@@ -35,10 +35,10 @@ export async function syncDailyCollectionEvent(input: DailyEventInput) {
     title: eventTitle(record),
     link: record.url,
     summary: record.text,
-    viewCount: record.viewNum ?? 0,
-    forwardCount: record.forwardNum ?? 0,
+    viewCount: record.viewNum,
+    forwardCount: record.forwardNum,
     replyCount: record.commentNum,
-    praiseCount: record.praiseNum ?? 0,
+    praiseCount: record.praiseNum,
     tendency: tendency || null,
     rawData: record,
     rowNo

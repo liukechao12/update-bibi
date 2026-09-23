@@ -78,10 +78,10 @@ export default async function EventRecordsPage({ searchParams }: { searchParams:
     title: string | null;
     link: string | null;
     summary: string | null;
-    viewCount: number;
-    forwardCount: number;
-    replyCount: number;
-    praiseCount: number;
+    viewCount: number | null;
+    forwardCount: number | null;
+    replyCount: number | null;
+    praiseCount: number | null;
     tendency: string | null;
     rowNo: number;
     createdAt: Date;

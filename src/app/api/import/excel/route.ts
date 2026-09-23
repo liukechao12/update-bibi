@@ -7,6 +7,7 @@ import type { PushRecordInput } from '@/lib/schemas';
 import { requireApiUser } from '@/lib/api-auth';
 import { pushExistingRecords } from '@/lib/push-workflow';
 import { syncDailyCollectionEvents } from '@/lib/daily-event-sync';
+import { normalizeRawCrawlTime } from '@/lib/raw-parser';
 
 function getCellString(value: ExcelJS.CellValue) {
   if (value === null || value === undefined) return '';
@@ -32,29 +33,22 @@ function toNullableNumber(value: string) {
   return Number.isFinite(number) ? number : null;
 }
 
-function toLocalDateTime(value: string) {
-  const normalized = value.trim().replace(/[./]/g, '-').replace('年', '-').replace('月', '-').replace('日', '');
-  const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+|T)(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if (!match) return normalizePublishTimeToDate(value);
-  // Excel 导入的时间按表格显示的北京时间保存，不把无时区字符串当 UTC 再加 8 小时。
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6] ?? 0));
-}
-
 function valuesChanged(existing: {
   title: string; text: string; publishTime: Date; author: string; originType: string; publisherType: string;
   authorType: string | null; url: string; commentNum: number; forwardNum: number | null; praiseNum: number | null;
-  viewNum: number | null; tendency: string | null;
-}, record: PushRecordInput, tendency: string | null, publishTime: Date) {
+  viewNum: number | null; tendency: string | null; sourceName: string | null;
+}, record: PushRecordInput, tendency: string | null, publishTime: Date, sourceName: string | null) {
   return existing.title !== record.title || existing.text !== record.text ||
     existing.publishTime.getTime() !== publishTime.getTime() || existing.author !== record.author ||
     existing.originType !== record.originType || existing.publisherType !== record.publisherType ||
     existing.authorType !== record.authorType || existing.url !== record.url ||
     existing.commentNum !== record.commentNum || existing.forwardNum !== record.forwardNum ||
     existing.praiseNum !== record.praiseNum || existing.viewNum !== record.viewNum ||
-    existing.tendency !== tendency;
+    existing.tendency !== tendency || existing.sourceName !== sourceName;
 }
 
 export async function POST(request: Request) {
+  const receivedAt = new Date();
   const auth = await requireApiUser();
   if ('error' in auth) return auth.error;
 
@@ -80,8 +74,7 @@ export async function POST(request: Request) {
         const raw: Record<string, string> = {};
         headers.forEach((header: string, index: number) => {
           const cell = row.getCell(index + 1);
-          // ExcelJS 会把日期单元格转换成 Date；在服务器时区与 Excel 显示时区不同的情况下，
-          // 直接取 Date 的小时可能发生偏移。优先使用单元格显示文本，保持用户在 Excel 中看到的时间。
+          // 日期取 ExcelJS Date 的 UTC 分量还原显示时间，再按北京时间解析。
           raw[header] = getCellString(cell.value);
         });
         importedRows.push({ rowNo, raw });
@@ -89,6 +82,37 @@ export async function POST(request: Request) {
     }
 
     if (importedRows.length === 0) return NextResponse.json({ code: 40002, message: 'Excel 中没有数据行' }, { status: 400 });
+
+    const getField = (raw: Record<string, string>, keys: string[]) => {
+      for (const key of keys) {
+        const value = raw[key];
+        if (value !== undefined && value !== '') return value;
+      }
+      return '';
+    };
+
+    // 先完成整批字段校验，再逐行处理业务错误与保存，保持 invalidRows 格式。
+    const preparedRows = importedRows.map((item) => {
+      const tendency = getField(item.raw, ['倾向性']) || null;
+      const summary = getField(item.raw, ['简述', '摘要']);
+      const publishTimeText = getField(item.raw, ['发布时间', '时间']);
+      const normalized = mapRawRecordToPushRecord({
+        tendency: tendency ?? undefined,
+        source: getField(item.raw, ['来源']),
+        author: getField(item.raw, ['作者']),
+        time: publishTimeText,
+        crawlTime: normalizeRawCrawlTime(getField(item.raw, ['采集时间', '抓取时间', '爬取时间', 'crawlTime']) || undefined) ?? receivedAt.toISOString(),
+        title: getField(item.raw, ['标题']),
+        link: getField(item.raw, ['链接']),
+        summary,
+        commentNum: getField(item.raw, ['评论数']) && !['-', '—'].includes(getField(item.raw, ['评论数'])) ? Number(getField(item.raw, ['评论数'])) : 0,
+        forwardNum: toNullableNumber(getField(item.raw, ['转发数', '转发量'])),
+        praiseNum: toNullableNumber(getField(item.raw, ['点赞数', '点赞量'])),
+        viewNum: toNullableNumber(getField(item.raw, ['阅读数', '阅读量', '浏览量']))
+      });
+
+      return { item, tendency, summary, publishTimeText, validated: pushRequestSchema.shape.records.element.safeParse(normalized) };
+    });
 
     const currentUser = await prisma.user.findUnique({ where: { id: auth.user.id } });
     if (!currentUser) return NextResponse.json({ code: 50000, message: '未找到当前用户' }, { status: 500 });
@@ -107,71 +131,49 @@ export async function POST(request: Request) {
         remark: 'Excel 导入处理中'
       }
     });
-
-    const getField = (raw: Record<string, string>, keys: string[]) => {
-      for (const key of keys) {
-        const value = raw[key];
-        if (value !== undefined && value !== '') return value;
-      }
-      return '';
-    };
-
     const affectedRecords: Array<{ id: string; textId: string; rowNo: number; payload: PushRecordInput; tendency: string | null }> = [];
     const invalidRows: Array<{ rowNo: number; missing: string[] }> = [];
     let createdCount = 0;
     let updatedCount = 0;
     let skippedCount = 0;
 
-    for (const item of importedRows) {
-      const tendency = getField(item.raw, ['倾向性']) || null;
-      const summary = getField(item.raw, ['简述', '摘要']);
-      const normalized = mapRawRecordToPushRecord({
-        tendency: tendency ?? undefined,
-        source: getField(item.raw, ['来源']),
-        author: getField(item.raw, ['作者']),
-        time: getField(item.raw, ['时间']),
-        title: getField(item.raw, ['标题']),
-        link: getField(item.raw, ['链接']),
-        summary,
-        commentNum: getField(item.raw, ['评论数']) && !['-', '—'].includes(getField(item.raw, ['评论数'])) ? Number(getField(item.raw, ['评论数'])) : 0,
-        forwardNum: toNullableNumber(getField(item.raw, ['转发数', '转发量'])),
-        praiseNum: toNullableNumber(getField(item.raw, ['点赞数', '点赞量'])),
-        viewNum: toNullableNumber(getField(item.raw, ['阅读数', '阅读量', '浏览量']))
-      });
-
-      const validated = pushRequestSchema.shape.records.element.safeParse(normalized);
+    for (const { item, tendency, summary, publishTimeText, validated } of preparedRows) {
       if (!validated.success) {
-        const required = ['来源', '作者', '时间', '标题', '链接', '简述/摘要', '评论数'];
-        const missing = required.filter((field) => field === '简述/摘要' ? !summary : !getField(item.raw, [field]));
-        invalidRows.push({ rowNo: item.rowNo, missing: missing.length ? missing : ['字段格式不合法'] });
+        const required = ['来源', '作者', '发布时间', '标题', '链接', '简述/摘要', '评论数'];
+        const missing = required.filter((field) => field === '简述/摘要' ? !summary
+          : field === '发布时间' ? !publishTimeText : !getField(item.raw, [field]));
+        invalidRows.push({ rowNo: item.rowNo, missing: isPublishTimeInFuture(publishTimeText, receivedAt)
+          ? ['发布时间晚于当前时间'] : missing.length ? missing : ['字段格式不合法'] });
         continue;
       }
 
-      const publishTime = toLocalDateTime(getField(item.raw, ['时间']));
-      if (isPublishTimeInFuture(getField(item.raw, ['时间']), new Date())) {
-        invalidRows.push({ rowNo: item.rowNo, missing: ['发布时间晚于当前时间'] });
-        continue;
-      }
+      const normalized = validated.data;
+      const publishTime = normalizePublishTimeToDate(normalized.publishTime);
+      const crawlTime = normalized.crawlTime ? new Date(normalized.crawlTime) : receivedAt;
+      const sourceName = getField(item.raw, ['来源']).trim() || null;
       const existing = await prisma.dataRecord.findFirst({
-      where: {
-        OR: [
-          { textId: normalized.textId },
-          { url: normalized.url }
-        ]
-      },
-      orderBy: { createdAt: 'asc' }
-    });
+        where: { OR: [{ textId: normalized.textId }, { url: normalized.url }] },
+        orderBy: { createdAt: 'asc' }
+      });
       if (existing) {
-        if (!valuesChanged(existing, normalized, tendency, publishTime)) {
+        if (!valuesChanged(existing, normalized, tendency, publishTime, sourceName)) {
           skippedCount += 1;
           continue;
         }
-        await prisma.dataRecord.update({
-          where: { id: existing.id },
+        const updated = await prisma.dataRecord.updateMany({
+          where: {
+            id: existing.id,
+            recordStatus: { not: 'PUSHING' },
+            pushItems: { none: { OR: [
+              { status: { in: ['SENDING', 'RETRYING'] } },
+              { pushJob: { status: { in: ['SENDING', 'RETRYING'] } } }
+            ] } }
+          },
           data: {
             title: normalized.title,
             text: normalized.text,
             publishTime,
+            crawlTime,
             author: normalized.author,
             originType: normalized.originType,
             publisherType: normalized.publisherType,
@@ -184,11 +186,15 @@ export async function POST(request: Request) {
             tendency,
             rawSourceText: JSON.stringify(item.raw),
             sourceRowNo: item.rowNo,
-            sourceName: getField(item.raw, ['来源']) || null,
+            sourceName,
             recordStatus: 'PENDING_PUSH'
           }
         });
-        affectedRecords.push({ id: existing.id, textId: existing.textId, rowNo: item.rowNo, payload: validated.data, tendency });
+        if (updated.count === 0) {
+          invalidRows.push({ rowNo: item.rowNo, missing: ['记录正在推送，禁止覆盖在途内容，请稍后重试'] });
+          continue;
+        }
+        affectedRecords.push({ id: existing.id, textId: existing.textId, rowNo: item.rowNo, payload: { ...normalized, textId: existing.textId }, tendency });
         updatedCount += 1;
         continue;
       }
@@ -200,6 +206,7 @@ export async function POST(request: Request) {
           title: normalized.title,
           text: normalized.text,
           publishTime,
+          crawlTime,
           author: normalized.author,
           originType: normalized.originType,
           publisherType: normalized.publisherType,
@@ -212,12 +219,12 @@ export async function POST(request: Request) {
           tendency,
           rawSourceText: JSON.stringify(item.raw),
           sourceRowNo: item.rowNo,
-          sourceName: getField(item.raw, ['来源']) || null,
+          sourceName,
           recordStatus: 'PENDING_PUSH',
           createdById: currentUser.id
         }
       });
-      affectedRecords.push({ id: created.id, textId: created.textId, rowNo: item.rowNo, payload: validated.data, tendency });
+      affectedRecords.push({ id: created.id, textId: created.textId, rowNo: item.rowNo, payload: { ...normalized, textId: created.textId }, tendency });
       createdCount += 1;
     }
 

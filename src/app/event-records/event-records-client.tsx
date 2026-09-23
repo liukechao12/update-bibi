@@ -15,10 +15,10 @@ type EventRecordItem = {
   title: string;
   link: string;
   summary: string;
-  viewCount: number;
-  forwardCount: number;
-  replyCount: number;
-  praiseCount: number;
+  viewCount: number | null;
+  forwardCount: number | null;
+  replyCount: number | null;
+  praiseCount: number | null;
   tendency: string;
   rowNo: number;
   createdAt: string;
@@ -138,7 +138,7 @@ export default function EventRecordsTableClient({ records }: { records: EventRec
                     <td style={{ whiteSpace: 'nowrap' }}>{record.publishTime || '-'}</td>
                     <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.title || '-'}</td>
                     <td style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      浏览 {record.viewCount} · 转载 {record.forwardCount} · 回复 {record.replyCount} · 点赞 {record.praiseCount}
+                      浏览 {record.viewCount ?? '—'} · 转载 {record.forwardCount ?? '—'} · 回复 {record.replyCount ?? '—'} · 点赞 {record.praiseCount ?? '—'}
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {record.tendency ? <span style={badgeStyle(record.tendency, tendencyColors)}>{record.tendency}</span> : '-'}
@@ -196,19 +196,19 @@ export default function EventRecordsTableClient({ records }: { records: EventRec
                                 </tr>
                                 <tr>
                                   <th>浏览数</th>
-                                  <td>{record.viewCount}</td>
+                                  <td>{record.viewCount ?? '—'}</td>
                                 </tr>
                                 <tr>
                                   <th>转载数</th>
-                                  <td>{record.forwardCount}</td>
+                                  <td>{record.forwardCount ?? '—'}</td>
                                 </tr>
                                 <tr>
                                   <th>回复数</th>
-                                  <td>{record.replyCount}</td>
+                                  <td>{record.replyCount ?? '—'}</td>
                                 </tr>
                                 <tr>
                                   <th>点赞数</th>
-                                  <td>{record.praiseCount}</td>
+                                  <td>{record.praiseCount ?? '—'}</td>
                                 </tr>
                                 <tr>
                                   <th>倾向性</th>
