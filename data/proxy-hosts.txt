@@ -1,0 +1,12 @@
+# 需要穿代理截图的域名清单
+#
+# 规则：
+#   - 一行一个域名，支持子域名自动匹配（写 xiaohongshu.com 即包含 www.xiaohongshu.com、m.xiaohongshu.com）
+#   - # 开头是注释，空行忽略
+#   - 改完保存即可生效，不需要重启服务（程序每次截图前检查文件修改时间）
+#
+# 文件位置：服务器上 /mnt/mydisk/www_data/wwwroot/data-sync-push-platform/data/proxy-hosts.txt
+# 没配代理提取地址（SCREENSHOT_PROXY_API_URL）时，这里列的域名会截图失败并降级为无图推送。
+
+xiaohongshu.com
+xhslink.cn

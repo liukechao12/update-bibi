@@ -92,6 +92,7 @@ function MenuIcon({ open }: { open: boolean }) {
 export default function TopNavClient({ user, visibleItems }: TopNavClientProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState<string | null>(null);
   const primaryItems = visibleItems.filter((item) => primaryHrefs.has(item.href));
   const groupedItems: NavGroup[] = groupConfig
     .map((group) => ({
@@ -124,6 +125,19 @@ export default function TopNavClient({ user, visibleItems }: TopNavClientProps) 
     };
   }, [open, setOpen]);
 
+  // 点击外部关闭下拉菜单
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    function onClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.topnav-dropdown')) {
+        setDropdownOpen(null);
+      }
+    }
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, [dropdownOpen]);
+
   return (
     <>
       {/* ====== 左侧 logo + 主菜单（中大屏使用） ====== */}
@@ -151,24 +165,27 @@ export default function TopNavClient({ user, visibleItems }: TopNavClientProps) 
 
         {groupedItems.map((group) => {
           const active = group.items.some((item) => isCurrent(pathname, item.href));
+          const isOpen = dropdownOpen === group.label;
           return (
             <div key={group.label} className="topnav-dropdown">
               <button
                 type="button"
                 className="topnav-item topnav-dropdown-trigger"
-                aria-expanded={active ? 'true' : undefined}
+                aria-expanded={isOpen ? 'true' : undefined}
+                onClick={() => setDropdownOpen(isOpen ? null : group.label)}
               >
                 <Icon name={group.icon} />
                 <span>{group.label}</span>
-                <span className="topnav-chevron">⌄</span>
+                <span className="topnav-chevron"></span>
               </button>
-              <div className="topnav-dropdown-panel">
+              <div className={`topnav-dropdown-panel ${isOpen ? 'is-open' : ''}`}>
                 {group.items.map((item) => (
                   <Link
                     key={item.href}
                     href={item.href}
                     className="topnav-dropdown-link"
                     aria-current={isCurrent(pathname, item.href) ? 'page' : undefined}
+                    onClick={() => setDropdownOpen(null)}
                   >
                     <Icon name={item.icon} />
                     <span>{item.label}</span>

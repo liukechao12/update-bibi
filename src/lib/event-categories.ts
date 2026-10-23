@@ -2,16 +2,21 @@ import { prisma } from '@/lib/prisma';
 import { eventCategoryList } from '@/lib/labels';
 
 export async function getEventCategoryOptions() {
-  const databaseCategories = await prisma.eventRecord.findMany({
+  // 使用预定义分类列表，避免在大数据量上执行 distinct 查询
+  const result = new Map(eventCategoryList.map((item) => [item.value, item.label]));
+
+  // 检查数据库中是否有额外的分类（不在预定义列表中）
+  const dbCategories = await prisma.eventRecord.findMany({
     distinct: ['category'],
     select: { category: true },
-    where: { category: { not: '' } },
-    orderBy: { category: 'asc' }
+    where: {
+      category: { not: '' },
+      AND: { category: { notIn: Array.from(result.keys()) } }
+    }
   });
 
-  const result = new Map(eventCategoryList.map((item) => [item.value, item.label]));
-  for (const item of databaseCategories) {
-    if (!result.has(item.category)) result.set(item.category, item.category);
+  for (const item of dbCategories) {
+    result.set(item.category, item.category);
   }
 
   return Array.from(result, ([value, label]) => ({ value, label }));

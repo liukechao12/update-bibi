@@ -6,6 +6,7 @@ import { normalizeContentUrl, normalizePublishTimeToDate } from '@/lib/mapping';
 import { getPushConfig } from '@/lib/push-config';
 import { generateBatchNo, generateJobNo } from '@/lib/business-no';
 import { applyMetricCapability, loadMetricCapabilityMap } from '@/lib/metric-capability';
+import { captureScreenshotsForRecords, uploadImagesForPush } from '@/lib/image-service';
 import { BatchStatus } from '@prisma/client';
 
 function normalizeErrorMessage(value: unknown) {
@@ -69,7 +70,7 @@ async function writePushResult(pushJobId: string, payload: PushResponse) {
     await tx.pushJob.update({
       where: { id: pushJobId },
       data: {
-        responseBody: payload, httpStatus: payload.httpStatus ?? 200, insertedCount: items.length - failures.size,
+        responseBody: payload.rawResponse ?? payload, httpStatus: payload.httpStatus ?? 200, insertedCount: items.length - failures.size,
         failedCount: failures.size, status: failures.size ? 'FAILED' : 'SUCCESS'
       }
     });
@@ -109,11 +110,11 @@ export async function saveParsedRecordsOnly(userId: string, input: PushRecordInp
   if (!currentUser) throw new Error('未找到当前用户');
   const isAdmin = currentUser.roles.some((item) => item.role.roleCode === 'SUPER_ADMIN');
   const records = input.map((record) => pushRecordSchema.parse({ ...record, url: normalizeContentUrl(record.url) }));
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const batch = await tx.dataBatch.create({
       data: { batchNo: generateBatchNo(), importType: 'PASTE', totalCount: records.length, validCount: 0, invalidCount: 0, createdById: userId, status: 'PENDING_PUSH', remark: '直接提交保存' }
     });
-    const createdRecords: Array<{ id: string; textId: string }> = [];
+    const createdRecords: Array<{ id: string; textId: string; url: string }> = [];
     for (const [index, record] of records.entries()) {
       const existing = await tx.dataRecord.findFirst({
         where: { OR: [{ textId: record.textId }, { url: record.url }] }, orderBy: { createdAt: 'asc' }
@@ -136,19 +137,34 @@ export async function saveParsedRecordsOnly(userId: string, input: PushRecordInp
         sourceRowNo: index + 1, recordStatus: 'PENDING_PUSH' as const
       };
       let saved = existing;
+      let isNewRecord = false;
       if (!existing) {
         saved = await tx.dataRecord.create({ data: { ...data, batchId: batch.id, textId: record.textId, createdById: userId } });
+        isNewRecord = true;
       } else if (changed) {
         const updated = await tx.dataRecord.updateMany({
           where: { id: existing.id, updatedAt: existing.updatedAt, recordStatus: existing.recordStatus }, data
         });
         if (updated.count !== 1) throw new Error('记录状态已变化，请刷新后重试');
       }
-      if (saved && !createdRecords.some((item) => item.id === saved.id)) createdRecords.push({ id: saved.id, textId: saved.textId });
+      if (saved && !createdRecords.some((item) => item.id === saved.id)) {
+        createdRecords.push({ id: saved.id, textId: saved.textId, url: saved.url });
+        // 新记录需要截图
+        if (isNewRecord && saved.url) {
+          // 异步触发截图，不阻塞入库
+          setImmediate(() => {
+            captureScreenshotsForRecords([{ id: saved!.id, url: saved!.url }]).catch((err) => {
+              console.error('异步截图失败:', err);
+            });
+          });
+        }
+      }
     }
     await tx.dataBatch.update({ where: { id: batch.id }, data: { validCount: createdRecords.length } });
     return { batch, createdRecords };
   }, { timeout: 60000 });
+
+  return result;
 }
 
 type ExistingPushResult = {
@@ -207,12 +223,39 @@ export async function pushExistingRecords(userId: string, recordIds: string[]): 
   }
   const pushable = classified.filter((item) => item.pushType !== 'SKIP').map((item) => item.record);
   if (!pushable.length) return { batchNo: null, results: [], batchId: null, skipped: skipCount, message: `数据未发生变化，未重复推送 ${skipCount} 条` };
+
   const pushType = updateIds.length ? 'UPDATE' as const : 'CREATE' as const;
   const endpoint = await resolveEndpoint(pushType);
   const capabilities = await loadMetricCapabilityMap();
+
+  // 上传本地截图到客户接口，获取 vendorUrl
+  const imageUrlMap = await uploadImagesForPush(pushable.map((r) => r.id));
+
+  // 按是否有图片分组：有图片走 v4，无图片降级走 v3
+  const withImages: typeof pushable = [];
+  const withoutImages: typeof pushable = [];
+  for (const record of pushable) {
+    const urls = imageUrlMap.get(record.id);
+    if (urls && urls.length > 0) {
+      withImages.push(record);
+    } else {
+      withoutImages.push(record);
+    }
+  }
+
   const chunks: Array<{ records: typeof pushable; outgoing: OutgoingPushRecord[]; requestBody: Awaited<ReturnType<typeof buildVendorPushPayload>> }> = [];
-  for (let start = 0; start < pushable.length; start += pushConfig.batchSize) {
-    const chunk = pushable.slice(start, start + pushConfig.batchSize);
+
+  for (let start = 0; start < withImages.length; start += pushConfig.batchSize) {
+    const chunk = withImages.slice(start, start + pushConfig.batchSize);
+    const outgoing = chunk.map((record) => {
+      const base = applyMetricCapability(toPushPayload(record), record.sourceName, capabilities);
+      return { ...base, imageUrls: imageUrlMap.get(record.id)! };
+    });
+    chunks.push({ records: chunk, outgoing, requestBody: await buildVendorPushPayload(outgoing, pushType) });
+  }
+
+  for (let start = 0; start < withoutImages.length; start += pushConfig.batchSize) {
+    const chunk = withoutImages.slice(start, start + pushConfig.batchSize);
     const outgoing = chunk.map((record) => applyMetricCapability(toPushPayload(record), record.sourceName, capabilities));
     chunks.push({ records: chunk, outgoing, requestBody: await buildVendorPushPayload(outgoing, pushType) });
   }

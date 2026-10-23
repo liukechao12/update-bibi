@@ -10,6 +10,10 @@ export const CONFIG_KEYS = {
   PUSH_BATCH_SIZE: 'PUSH_BATCH_SIZE',
   PUSH_TIMEOUT_MS: 'PUSH_TIMEOUT_MS',
   PUSH_API_VERSION: 'PUSH_API_VERSION',
+  SCREENSHOT_SERVICE_URL: 'SCREENSHOT_SERVICE_URL',
+  SCREENSHOT_PROXY_API_URL: 'SCREENSHOT_PROXY_API_URL',
+  SCREENSHOT_SERVICE_API_KEY: 'SCREENSHOT_SERVICE_API_KEY',
+  SCREENSHOT_DIR: 'SCREENSHOT_DIR',
   TENCENT_DOC_DOWNLOAD_URL: 'TENCENT_DOC_DOWNLOAD_URL',
   TENCENT_DOC_SYNC_ENABLED: 'TENCENT_DOC_SYNC_ENABLED',
   TENCENT_DOC_SYNC_TIME: 'TENCENT_DOC_SYNC_TIME',
@@ -28,6 +32,10 @@ export const CONFIG_DEFAULTS: Record<string, string> = {
   PUSH_BATCH_SIZE: '100',
   PUSH_TIMEOUT_MS: '300000',
   PUSH_API_VERSION: '3',
+  SCREENSHOT_SERVICE_URL: '',
+  SCREENSHOT_PROXY_API_URL: '',
+  SCREENSHOT_SERVICE_API_KEY: '',
+  SCREENSHOT_DIR: '',
   TENCENT_DOC_DOWNLOAD_URL: '',
   TENCENT_DOC_SYNC_ENABLED: 'false',
   TENCENT_DOC_SYNC_TIME: '09:00',
@@ -81,7 +89,7 @@ export async function getVendorApiToken(): Promise<string> {
 }
 
 export async function getPushConfig() {
-  const [url, token, maxRetries, backoffInitial, backoffMax, batchSize, timeoutMs, apiVersion] = await Promise.all([
+  const [url, token, maxRetries, backoffInitial, backoffMax, batchSize, timeoutMs, apiVersion, screenshotServiceUrl, screenshotProxyApiUrl, screenshotServiceApiKey, screenshotDir] = await Promise.all([
     getConfig(CONFIG_KEYS.VENDOR_API_URL),
     getConfig(CONFIG_KEYS.VENDOR_API_TOKEN),
     getConfig(CONFIG_KEYS.PUSH_MAX_RETRIES),
@@ -89,7 +97,11 @@ export async function getPushConfig() {
     getConfig(CONFIG_KEYS.PUSH_BACKOFF_MAX_MS),
     getConfig(CONFIG_KEYS.PUSH_BATCH_SIZE),
     getConfig(CONFIG_KEYS.PUSH_TIMEOUT_MS),
-    getConfig(CONFIG_KEYS.PUSH_API_VERSION)
+    getConfig(CONFIG_KEYS.PUSH_API_VERSION),
+    getConfig(CONFIG_KEYS.SCREENSHOT_SERVICE_URL),
+    getConfig(CONFIG_KEYS.SCREENSHOT_PROXY_API_URL),
+    getConfig(CONFIG_KEYS.SCREENSHOT_SERVICE_API_KEY),
+    getConfig(CONFIG_KEYS.SCREENSHOT_DIR)
   ]);
 
   return {
@@ -100,6 +112,10 @@ export async function getPushConfig() {
     backoffMaxMs: Number.isFinite(Number(backoffMax)) ? Math.max(10000, Number(backoffMax) || 300000) : 300000,
     batchSize: Number.isFinite(Number(batchSize)) ? Math.min(100, Math.max(1, Math.floor(Number(batchSize) || 100))) : 100,
     timeoutMs: Number.isFinite(Number(timeoutMs)) ? Math.max(10000, Number(timeoutMs) || 300000) : 300000,
-    apiVersion: apiVersion.trim() || '3'
+    apiVersion: apiVersion.trim() || '3',
+    screenshotServiceUrl: screenshotServiceUrl.trim(),
+    screenshotProxyApiUrl: screenshotProxyApiUrl.trim(),
+    screenshotServiceApiKey: screenshotServiceApiKey.trim(),
+    screenshotDir: screenshotDir.trim()
   };
 }

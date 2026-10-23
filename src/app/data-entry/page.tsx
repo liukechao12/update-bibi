@@ -140,7 +140,7 @@ export default function DataEntryPage() {
           ) : null}
 
           {typeof result?.saved === 'number' ? (
-            <p className="helper">本次可推送 {result.saved} 条，其中更新已有记录 {result.updated ?? 0} 条。</p>
+            <p className="helper">本次可推送 {result.saved} 条，其中更新已有记录 {result.updated ?? 0} 条。<br />入库后已自动开始后台截图，稍等十几秒再点推送即可带上截图；截图失败的记录会按无图推送。</p>
           ) : null}
 
           {result?.missingFields?.length ? (

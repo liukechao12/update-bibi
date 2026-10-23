@@ -1,0 +1,26 @@
+# Browserless 截图服务（单容器 + 动态代理）
+# 
+# - browserless: 处理所有网站，小红书等自动通过 /function 注入动态代理
+services:
+  browserless:
+    build: .
+    image: browserless-cjk:1.0.0
+    container_name: browserless
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3100:3000"
+    environment:
+      TOKEN: ${BROWSERLESS_TOKEN:-}
+      HOST: 0.0.0.0
+      PORT: 3000
+      CONCURRENT: 4
+      QUEUED: 8
+      TIMEOUT: 90000
+      DEFAULT_LAUNCH_ARGS: '["--no-sandbox","--lang=zh-CN","--disable-dev-shm-usage","--ignore-certificate-errors","--disable-features=HttpsUpgrades,HttpsFirstModeV2,HttpsFirstBalancedMode"]'
+    shm_size: "512mb"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:3000/pressure?token=$$TOKEN"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

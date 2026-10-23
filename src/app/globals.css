@@ -233,7 +233,7 @@ select {
   padding: 0 24px;
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 12px;
 }
 
 .topnav-logo {
@@ -241,6 +241,20 @@ select {
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+}
+
+.topnav-menu {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow: visible;
+  padding-right: 8px;
+}
+
+.topnav-menu::-webkit-scrollbar {
+  display: none;
 }
 
 .topnav-logo-mark {
@@ -265,20 +279,11 @@ select {
   white-space: nowrap;
 }
 
-.topnav-menu {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
-  overflow: visible;
-}
-
 .topnav-item {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
+  gap: 6px;
+  padding: 8px 10px;
   border-radius: 10px;
   color: var(--muted);
   font-size: 14px;
@@ -302,6 +307,7 @@ select {
   position: relative;
   display: inline-flex;
   align-items: center;
+  z-index: 101;
 }
 
 .topnav-dropdown-trigger {
@@ -326,7 +332,8 @@ select {
 }
 
 .topnav-dropdown:hover .topnav-chevron,
-.topnav-dropdown:focus-within .topnav-chevron {
+.topnav-dropdown:focus-within .topnav-chevron,
+.topnav-dropdown-trigger[aria-expanded="true"] .topnav-chevron {
   transform: translateY(1px) rotate(180deg);
 }
 
@@ -344,6 +351,7 @@ select {
   pointer-events: none;
   transform: translateY(-6px);
   transition: opacity 0.16s ease, transform 0.16s ease;
+  z-index: 100;
 }
 
 .topnav-dropdown-panel::before {
@@ -356,7 +364,8 @@ select {
 }
 
 .topnav-dropdown:hover .topnav-dropdown-panel,
-.topnav-dropdown:focus-within .topnav-dropdown-panel {
+.topnav-dropdown:focus-within .topnav-dropdown-panel,
+.topnav-dropdown-panel.is-open {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
@@ -391,6 +400,10 @@ select {
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
+  margin-left: 16px;
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
+  min-width: 200px;
 }
 
 .topnav-user-name {

@@ -102,6 +102,7 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
       batchId: true,
       sourceDepartment: true,
       createdAt: true,
+      _count: { select: { images: true } },
       batch: { select: { batchNo: true, createdBy: { select: { displayName: true } } } }
     }
   };
@@ -181,7 +182,8 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
     sourceDepartment: record.sourceDepartment ?? null,
     batchNo: record.batch?.batchNo ?? null,
     createdByName: record.batch?.createdBy?.displayName ?? null,
-    createdAt: formatBeijingTime(record.createdAt)
+    createdAt: formatBeijingTime(record.createdAt),
+    screenshotCount: record._count.images
   }));
 
   return (

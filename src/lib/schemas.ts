@@ -20,6 +20,9 @@ const crawlTimeSchema = z.string().datetime({ offset: true }).refine((value) => 
 export const vendorPublisherTypeSchema = z.enum(['media', 'social']);
 export const vendorAuthorTypeSchema = z.enum(['blue_v', 'self_media', 'personal']).nullable();
 
+// 客户 v4 图片 URL 校验：长度 ≤ 512
+const vendorImageUrlSchema = z.string().url().max(512);
+
 export const vendorPushRecordSchema = z.object({
   textId: z.string().min(1),
   title: cleanTextField,
@@ -31,6 +34,7 @@ export const vendorPushRecordSchema = z.object({
   publisherType: vendorPublisherTypeSchema,
   authorType: vendorAuthorTypeSchema,
   url: httpUrlSchema,
+  imageUrls: z.array(vendorImageUrlSchema).max(10).optional().default([]),
   // 客户接口要求评论数必填；即使上游未采集，也必须明确传 0，不能传 null。
   commentNum: z.number().int().nonnegative(),
   forwardNum: z.number().int().nonnegative().nullable(),

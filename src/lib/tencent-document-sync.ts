@@ -7,6 +7,7 @@ import type { PushRecordInput } from '@/lib/schemas';
 import { pushExistingRecords } from '@/lib/push-workflow';
 import { syncDailyCollectionEvents } from '@/lib/daily-event-sync';
 import { normalizeRawCrawlTime } from '@/lib/raw-parser';
+import { captureScreenshotsForRecords } from '@/lib/image-service';
 
 export type DocumentSyncTrigger = 'MANUAL' | 'SCHEDULED';
 
@@ -114,6 +115,7 @@ export async function runTencentDocumentSync(triggerType: DocumentSyncTrigger) {
     let createdCount = 0;
     let updatedCount = 0;
     let skippedCount = 0;
+    const newRecordsForScreenshot: Array<{ id: string; url: string }> = [];
 
     for (const { item, tendency, link, validated } of preparedRows) {
       if (!tendency) { invalidRows.push({ rowNo: item.rowNo, reason: '缺少倾向性' }); continue; }
@@ -158,6 +160,9 @@ export async function runTencentDocumentSync(triggerType: DocumentSyncTrigger) {
         updatedCount += 1;
       } else {
         saved = await prisma.dataRecord.create({ data: { ...data, batchId: batch.id, textId: record.textId, createdById: user.id } });
+        if (record.url) {
+          newRecordsForScreenshot.push({ id: saved.id, url: record.url });
+        }
         createdCount += 1;
       }
       affected.push({ id: saved.id, payload: { ...record, textId: saved.textId }, tendency, rowNo: item.rowNo, sheetId: item.sheetId });
@@ -168,6 +173,11 @@ export async function runTencentDocumentSync(triggerType: DocumentSyncTrigger) {
     let failedCount = 0;
     let pushError = '';
     if (affected.length) {
+      if (newRecordsForScreenshot.length > 0) {
+        await captureScreenshotsForRecords(newRecordsForScreenshot).catch((err) => {
+          console.error('腾讯文档同步后截图失败:', err);
+        });
+      }
       try {
         const result = await pushExistingRecords(user.id, affected.map((item) => item.id));
         pushedCount = result.results.reduce((sum, item) => sum + item.inserted, 0);

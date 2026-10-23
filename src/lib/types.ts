@@ -41,6 +41,7 @@ export type PushResponse = {
   failed: number;
   httpStatus?: number;
   errors: Array<{ index: number; error: string; code?: string | number | null }>;
+  rawResponse?: unknown;
 };
 
 export type ParsedRawRecord = {

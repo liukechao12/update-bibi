@@ -11,6 +11,7 @@ export type OutgoingPushRecord = Omit<PushRecordInput, 'commentNum' | 'forwardNu
   commentNum: number;
   forwardNum: number | null;
   praiseNum: number | null;
+  imageUrls?: string[];
 };
 
 function sleep(ms: number, signal?: AbortSignal) {
@@ -84,23 +85,30 @@ export function mapPushFailures(payload: PushResponse, itemCount: number) {
 export async function buildVendorPushPayload(records: OutgoingPushRecord[], pushType: PushType = 'CREATE') {
   if (records.length < 1 || records.length > 100) throw new Error('单次推送必须为 1 至 100 条');
   const config = await getPushConfig();
-  const apiVersion = pushType === 'UPDATE' ? '3' : String(config.apiVersion ?? '3').trim() || '3';
+  const hasImages = records.some((record) => record.imageUrls && record.imageUrls.length > 0);
+  const baseVersion = String(config.apiVersion ?? '3').trim() || '3';
+  const apiVersion = hasImages ? '4' : baseVersion;
 
   const vendorRecords = records.map((record) => {
-    if (apiVersion === '3' && !record.crawlTime) throw new Error(`${record.textId} 缺少抓取时间`);
+    const needsCrawlTime = apiVersion !== '2';
+    if (needsCrawlTime && !record.crawlTime) throw new Error(`${record.textId} 缺少抓取时间`);
     const normalized = vendorPushRecordSchema.parse({
       ...record,
       publishTime: normalizePublishTime(record.publishTime),
       publisherType: record.publisherType.toLowerCase(),
-      authorType: record.authorType?.toLowerCase() ?? null
+      authorType: record.authorType?.toLowerCase() ?? null,
+      imageUrls: record.imageUrls ?? []
     });
-    const { crawlTime, ...base } = normalized;
-    return apiVersion === '3' ? { ...base, crawlTime } : base;
+    const { crawlTime, imageUrls, ...base } = normalized;
+    const recordWithImages = apiVersion === '4' && record.imageUrls?.length
+      ? { ...base, imageUrls: record.imageUrls }
+      : base;
+    return needsCrawlTime ? { ...recordWithImages, crawlTime } : recordWithImages;
   });
 
   if (pushType === 'UPDATE') {
     return {
-      version: '3',
+      version: apiVersion,
       records: vendorRecords.map((record) => ({
         textId: record.textId,
         changeType: 'update' as const,
@@ -144,10 +152,36 @@ export async function pushBatch(
     const payloadBody = contentType.includes('application/json') ? await response.json().catch(() => null) : null;
 
     if (response.ok) {
-      if (!payloadBody || !Number.isInteger(payloadBody.inserted) || !Number.isInteger(payloadBody.failed) ||
-          payloadBody.inserted < 0 || payloadBody.failed < 0 || payloadBody.inserted + payloadBody.failed !== records.length ||
+      if (!payloadBody || !Number.isInteger(payloadBody.failed) || payloadBody.failed < 0 ||
           !Array.isArray(payloadBody.errors) || payloadBody.errors.some((entry: { index?: unknown; error?: unknown } | null) =>
             !entry || !Number.isInteger(entry.index) || typeof entry.error !== 'string')) {
+        throw new Error('客户回执格式异常，无法确认接收结果，请核对后再重试');
+      }
+
+      if (pushType === 'UPDATE') {
+        const accepted = payloadBody.accepted;
+        const idempotent = payloadBody.idempotent;
+        if (!Number.isInteger(accepted) || !Number.isInteger(idempotent) || accepted < 0 || idempotent < 0 ||
+            accepted + idempotent + payloadBody.failed !== records.length) {
+          throw new Error('客户修订接口回执格式异常，无法确认接收结果，请核对后再重试');
+        }
+        const failures = mapPushFailures({
+          inserted: accepted + idempotent,
+          failed: payloadBody.failed,
+          errors: payloadBody.errors,
+          httpStatus: response.status
+        }, records.length);
+        return {
+          inserted: records.length - failures.size,
+          failed: failures.size,
+          httpStatus: response.status,
+          errors: Array.from(failures, ([index, error]) => ({ index, ...error })),
+          rawResponse: payloadBody
+        };
+      }
+
+      if (!Number.isInteger(payloadBody.inserted) || payloadBody.inserted < 0 ||
+          payloadBody.inserted + payloadBody.failed !== records.length) {
         throw new Error('客户回执格式异常，无法确认接收结果，请核对后再重试');
       }
       const failures = mapPushFailures(payloadBody, records.length);
@@ -155,7 +189,8 @@ export async function pushBatch(
         inserted: records.length - failures.size,
         failed: failures.size,
         httpStatus: response.status,
-        errors: Array.from(failures, ([index, error]) => ({ index, ...error }))
+        errors: Array.from(failures, ([index, error]) => ({ index, ...error })),
+        rawResponse: payloadBody
       };
     }
 

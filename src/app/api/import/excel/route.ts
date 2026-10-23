@@ -5,9 +5,9 @@ import { isPublishTimeInFuture, mapRawRecordToPushRecord, normalizePublishTimeTo
 import { pushRequestSchema } from '@/lib/schemas';
 import type { PushRecordInput } from '@/lib/schemas';
 import { requireApiUser } from '@/lib/api-auth';
-import { pushExistingRecords } from '@/lib/push-workflow';
 import { syncDailyCollectionEvents } from '@/lib/daily-event-sync';
 import { normalizeRawCrawlTime } from '@/lib/raw-parser';
+import { schedulePostEntry } from '@/lib/post-entry';
 
 function getCellString(value: ExcelJS.CellValue) {
   if (value === null || value === undefined) return '';
@@ -136,6 +136,7 @@ export async function POST(request: Request) {
     let createdCount = 0;
     let updatedCount = 0;
     let skippedCount = 0;
+    const newRecordsForScreenshot: Array<{ id: string; url: string }> = [];
 
     for (const { item, tendency, summary, publishTimeText, validated } of preparedRows) {
       if (!validated.success) {
@@ -225,41 +226,41 @@ export async function POST(request: Request) {
         }
       });
       affectedRecords.push({ id: created.id, textId: created.textId, rowNo: item.rowNo, payload: { ...normalized, textId: created.textId }, tendency });
+      if (created.url) {
+        newRecordsForScreenshot.push({ id: created.id, url: created.url });
+      }
       createdCount += 1;
     }
 
-    let pushResult: Awaited<ReturnType<typeof pushExistingRecords>> | null = null;
-    let pushError = '';
     const eventSync = await syncDailyCollectionEvents(affectedRecords.map((item) => ({
       record: item.payload,
       tendency: item.tendency,
       rowNo: item.rowNo
     })));
 
-    if (affectedRecords.length > 0) {
-      try {
-        pushResult = await pushExistingRecords(currentUser.id, affectedRecords.map((item) => item.id));
-      } catch (error) {
-        pushError = error instanceof Error ? error.message : '推送失败';
-      }
-    }
+    const summary = `Excel 导入：新增 ${createdCount} 条，更新 ${updatedCount} 条，跳过未变化 ${skippedCount} 条`;
 
-    const hasPushFailure = Boolean(pushError) || Boolean(pushResult?.results.some((item) => item.failed > 0));
-    const finalStatus = affectedRecords.length === 0 ? 'SUCCESS' : hasPushFailure ? 'PARTIAL_SUCCESS' : 'SUCCESS';
-
+    // 录入响应到此结束：截图与推送挪到后台跑，避免"每条 15～45 秒"的截图把上传请求挂住。
+    // 后台会先把截图做完再推送，带图的记录仍然走 v4。
     await prisma.dataBatch.update({
       where: { id: batch.id },
       data: {
         validCount: affectedRecords.length,
         invalidCount: importedRows.length - affectedRecords.length,
-        status: finalStatus,
-        pushedAt: affectedRecords.length > 0 ? new Date() : null,
-        pushCount: pushResult?.results.length ?? 0,
-        successCount: hasPushFailure ? 0 : affectedRecords.length,
-        failCount: hasPushFailure ? affectedRecords.length : 0,
-        remark: `Excel 导入：新增 ${createdCount} 条，更新 ${updatedCount} 条，跳过未变化 ${skippedCount} 条${pushError ? `；推送异常：${pushError}` : ''}`
+        status: affectedRecords.length > 0 ? 'PENDING_PUSH' : 'SUCCESS',
+        remark: `${summary}；后台截图与推送进行中`
       }
     });
+
+    if (affectedRecords.length > 0) {
+      schedulePostEntry({
+        batchId: batch.id,
+        userId: currentUser.id,
+        recordIds: affectedRecords.map((item) => item.id),
+        screenshots: newRecordsForScreenshot,
+        summary
+      });
+    }
 
     return NextResponse.json({
       batchNo,
@@ -272,10 +273,11 @@ export async function POST(request: Request) {
       invalidRows,
       eventSync,
       affectedRecordIds: affectedRecords.map((item) => item.id),
-      pushResult,
-      warning: pushError
-        ? `Excel 已保存 ${affectedRecords.length} 条待推送记录，但推送失败：${pushError}`
-        : `Excel 导入完成：新增 ${createdCount} 条，更新 ${updatedCount} 条，跳过未变化 ${skippedCount} 条`
+      screenshotTargets: newRecordsForScreenshot.length,
+      async: true,
+      warning: affectedRecords.length > 0
+        ? `${summary}；已保存并转入后台处理（截图 → 推送），页面会实时显示进度`
+        : `${summary}；没有需要推送的记录`
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : String(error);

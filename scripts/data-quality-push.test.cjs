@@ -268,7 +268,10 @@ async function sandbox(options, run) {
       }
     }
     assert.ok(options.fetch || options.workflow, 'this case must not send');
-    return options.fetch ? options.fetch(call, state.fetches.length, state) : response(success(call.body.records.length));
+    if (options.fetch) return options.fetch(call, state.fetches.length, state);
+    return call.url.endsWith('/messages/revisions')
+      ? response({ accepted: call.body.records.length, idempotent: 0, failed: 0, errors: [], revisions: [] })
+      : response(success(call.body.records.length));
   };
   globalThis.fetch = async (...args) => {
     try { return await fakeFetch(...args); }
@@ -390,7 +393,7 @@ for (const [label, reply] of [
 
 test('pushBatch: maxRetries=0 still sends once and accepts a valid receipt', async () => {
   await sandbox({ fetch: () => response(success(1)) }, async ({ load, state }) => {
-    assert.deepEqual(await load('src/lib/push.ts').pushBatch([outgoing()]), { ...success(1), httpStatus: 200 });
+    assert.deepEqual(await load('src/lib/push.ts').pushBatch([outgoing()]), { ...success(1), httpStatus: 200, rawResponse: success(1) });
     assert.equal(state.fetches.length, 1);
     assert.equal(state.fetches[0].headers.get('authorization'), 'Bearer offline-dummy-token');
   });
@@ -401,7 +404,7 @@ test('pushBatch: valid partial receipt and a single whole-chunk error are mapped
   await sandbox({ fetch: (_call, attempt) => response(attempt === 1 ? partial : { inserted: 0, failed: 3, errors: [{ index: 0, error: 'chunk rejected' }] }) }, async ({ load }) => {
     const push = load('src/lib/push.ts');
     const records = [outgoing(1), outgoing(2), outgoing(3)];
-    assert.deepEqual(await push.pushBatch(records), { ...partial, httpStatus: 200 });
+    assert.deepEqual(await push.pushBatch(records), { ...partial, httpStatus: 200, rawResponse: partial });
     checkAllFailed(await push.pushBatch(records), 3);
   });
 });
@@ -426,7 +429,7 @@ test('pushBatch: exactly 100 rows accepted even with oversized saved batch confi
 for (const key of [undefined, 'offline-fixed-idempotency-key']) {
   test(`pushBatch: 429 retry keeps ${key ? 'supplied' : 'generated'} UPDATE idempotency key and payload`, async () => {
     await sandbox({ config: { PUSH_MAX_RETRIES: '2' }, fetch: (_call, attempt) => attempt < 3
-      ? response({ message: 'rate limited' }, 429, { 'retry-after': '0' }) : response(success(1)) }, async ({ load, state }) => {
+      ? response({ message: 'rate limited' }, 429, { 'retry-after': '0' }) : response({ accepted: 1, idempotent: 0, failed: 0, errors: [], revisions: [] }) }, async ({ load, state }) => {
       const result = await load('src/lib/push.ts').pushBatch([outgoing()], undefined, { pushType: 'UPDATE', idempotencyKey: key });
       assert.equal(result.inserted, 1);
       assert.equal(state.fetches.length, 3, 'maxRetries counts retries in addition to the initial attempt');

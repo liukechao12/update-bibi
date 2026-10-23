@@ -8,6 +8,7 @@ import { requireApiUser } from '@/lib/api-auth';
 import { MediaRuleType } from '@prisma/client';
 import { classifyAuthorType, classifyPublisherType, getDomainFromUrl } from '@/lib/media-classification';
 import { syncDailyCollectionEvents } from '@/lib/daily-event-sync';
+import { scheduleScreenshots } from '@/lib/post-entry';
 import { generateBatchNo } from '@/lib/business-no';
 
 function resolveMediaLibraryName(domain: string, authorName: string) {
@@ -318,6 +319,14 @@ export async function POST(request: Request) {
   });
 
   const eventSync = await syncDailyCollectionEvents(savedRecords.map(({ record, tendency, rowNo }) => ({ record, tendency, rowNo })));
+
+  // 入库即触发截图（不等结果）：插件路由与网页粘贴录入共用这里，避免两条路径各截一次。
+  // 截图失败的记录按既有规则降级 v3，不阻塞录入。
+  scheduleScreenshots(
+    savedRecords
+      .filter(({ record }) => Boolean(record.url))
+      .map(({ id, record }) => ({ id, url: record.url }))
+  );
 
   return NextResponse.json({
     total: rawRecords.length,

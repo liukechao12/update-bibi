@@ -25,7 +25,10 @@ export default async function SettingsPage() {
     backoffMaxMs: config.backoffMaxMs,
     batchSize: config.batchSize,
     timeoutMs: config.timeoutMs,
-    apiVersion: config.apiVersion
+    apiVersion: config.apiVersion,
+    screenshotServiceUrl: config.screenshotServiceUrl,
+    screenshotServiceApiKey: config.screenshotServiceApiKey,
+    screenshotDir: config.screenshotDir
   };
 
   return (
@@ -61,12 +64,15 @@ export default async function SettingsPage() {
           <tbody>
             <tr><td>推送接口地址</td><td>客户接口完整地址，例如 https://uat-callback-api.bilibili.cn/api/messages</td></tr>
             <tr><td>Token</td><td>客户提供的鉴权 Token，会以 Bearer 方式发送</td></tr>
-            <tr><td>协议版本</td><td>默认 v2；切换 v3 前需确认对方接口已上线并完成联调</td></tr>
+            <tr><td>协议版本</td><td>默认 v3；有图片时自动切换 v4；切换前需确认对方接口已上线并完成联调</td></tr>
+            <tr><td>截图服务地址</td><td>Docker Browserless 截图服务地址（普通网站），例如 http://127.0.0.1:3100；留空则推送不带图片。小红书、抖音等需要代理的网站会自动通过代理容器访问</td></tr>
+            <tr><td>截图服务 API Key</td><td>截图服务的鉴权密钥，如果截图服务需要 TOKEN 参数</td></tr>
             <tr><td>最大重试次数</td><td>遇到 429 或 5xx 时的最大重试次数</td></tr>
             <tr><td>初始退避</td><td>第一次重试前等待的毫秒数</td></tr>
             <tr><td>最大退避</td><td>退避时间的上限，毫秒</td></tr>
             <tr><td>单批最大条数</td><td>一次推送请求最多包含的记录数</td></tr>
             <tr><td>推送超时</td><td>单次推送最长等待时间，超过则判定为超时失败</td></tr>
+            <tr><td>代理域名配置</td><td>需要在服务器上修改 /mnt/mydisk/www_data/wwwroot/data-sync-push-platform/data/proxy-hosts.txt（一行一个域名，#注释）改完即时生效</td></tr>
           </tbody>
         </table>
       </div>

@@ -27,9 +27,13 @@ type RecordItem = {
   batchNo: string | null;
   createdByName: string | null;
   createdAt: string;
+  screenshotCount: number;
 };
 
-type RowDetail = { text: string | null; rawSourceText: string | null };
+type RowDetail = { text: string | null; rawSourceText: string | null; images: Array<{ id: string; localPath: string; vendorUrl: string | null; uploadStatus: string; mimeType: string; fileSize: number }> };
+
+type ScreenshotPreview = { recordId: string; images: Array<{ id: string; localPath: string; uploadStatus: string }> };
+type FullscreenImage = { src: string; alt: string };
 
 function statusTone(status: string) {
   switch (status) {
@@ -66,6 +70,9 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
   const [pushing, setPushing] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState<string | null>(null);
+  const [screenshotPreview, setScreenshotPreview] = useState<ScreenshotPreview | null>(null);
+  const [fullscreenImage, setFullscreenImage] = useState<FullscreenImage | null>(null);
   const [rowMessages, setRowMessages] = useState<Record<string, string>>({});
   const [batchMessage, setBatchMessage] = useState('');
   const [batchMessageTone, setBatchMessageTone] = useState<'success' | 'error' | ''>('');
@@ -96,13 +103,17 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
       if (response.ok && payload.record) {
         setRowDetails((current) => ({
           ...current,
-          [id]: { text: payload.record.text ?? null, rawSourceText: payload.record.rawSourceText ?? null }
+          [id]: {
+            text: payload.record.text ?? null,
+            rawSourceText: payload.record.rawSourceText ?? null,
+            images: payload.record.images ?? []
+          }
         }));
       } else {
-        setRowDetails((current) => ({ ...current, [id]: { text: null, rawSourceText: null } }));
+        setRowDetails((current) => ({ ...current, [id]: { text: null, rawSourceText: null, images: [] } }));
       }
     } catch {
-      setRowDetails((current) => ({ ...current, [id]: { text: null, rawSourceText: null } }));
+      setRowDetails((current) => ({ ...current, [id]: { text: null, rawSourceText: null, images: [] } }));
     } finally {
       setDetailLoading((current) => ({ ...current, [id]: false }));
     }
@@ -206,6 +217,36 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
     }
   }
 
+  async function handleScreenshot(id: string) {
+    setCapturing(id);
+    setRowMessages((current) => ({ ...current, [id]: '' }));
+    try {
+      const response = await fetch(`/api/records/${id}/screenshot`, { method: 'POST' });
+      const payload = await response.json();
+      if (!response.ok) {
+        setRowMessages((current) => ({ ...current, [id]: payload.message ?? '截图失败' }));
+        return;
+      }
+      setRowMessages((current) => ({ ...current, [id]: '截图已触发，请刷新页面查看' }));
+      router.refresh();
+    } catch (error) {
+      setRowMessages((current) => ({ ...current, [id]: error instanceof Error ? error.message : '截图失败' }));
+    } finally {
+      setCapturing(null);
+    }
+  }
+
+  async function handleViewScreenshots(id: string) {
+    const response = await fetch(`/api/records/${id}`);
+    const payload = await response.json();
+    if (response.ok && payload.record?.images) {
+      setScreenshotPreview({
+        recordId: id,
+        images: payload.record.images.map((img: any) => ({ id: img.id, localPath: img.localPath, uploadStatus: img.uploadStatus }))
+      });
+    }
+  }
+
   async function handleDelete(id: string) {
     if (!window.confirm('确认删除这条待推送记录？删除后不可恢复。')) return;
     setDeleting(id);
@@ -300,6 +341,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
             <col style={{ width: 140 }} />
             <col style={{ width: 120 }} />
             <col style={{ width: 110 }} />
+            <col style={{ width: 80 }} />
             <col style={{ width: 170 }} />
             <col style={{ width: 120 }} />
             <col style={{ width: 150 }} />
@@ -316,6 +358,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
               <th>作者</th>
               <th>来源</th>
               <th>来源部门</th>
+              <th>截图</th>
               <th>互动数据</th>
               <th>状态</th>
               <th>批次</th>
@@ -326,7 +369,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
           </thead>
           <tbody>
             {records.length === 0 ? (
-              <tr><td colSpan={13} style={{ textAlign: 'center' }}>暂无数据</td></tr>
+              <tr><td colSpan={14} style={{ textAlign: 'center' }}>暂无数据</td></tr>
             ) : records.map((record) => {
               const open = openRows.includes(record.id);
               const canPush = record.recordStatus === 'PENDING_PUSH' || record.recordStatus === 'VALIDATED' || record.recordStatus === 'FAILED';
@@ -360,6 +403,22 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
                     <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.author}</td>
                     <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{labelOrValue(originTypeLabelMap, record.originType)}</td>
                     <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.sourceDepartment || '-'}</td>
+                    <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                      {record.screenshotCount > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => handleViewScreenshots(record.id)}
+                          style={{ background: '#eaf7ef', color: '#0f9d58', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer' }}
+                          title="点击查看截图"
+                        >
+                          {record.screenshotCount} 张
+                        </button>
+                      ) : (
+                        <span style={{ background: '#fdeaea', color: '#d14343', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>
+                          无
+                        </span>
+                      )}
+                    </td>
                     <td style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       评论 {record.commentNum} · 转发 {record.forwardNum ?? 0} · 点赞 {record.praiseNum ?? 0} · 阅读 {record.viewNum ?? 0}
                     </td>
@@ -387,17 +446,59 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
                     <td style={{ whiteSpace: 'nowrap' }}>{record.createdByName ?? '-'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{record.createdAt}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
-                      <div className="stack">
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button
+                          type="button"
+                          onClick={() => handleScreenshot(record.id)}
+                          disabled={capturing === record.id}
+                          title={capturing === record.id ? '截图中...' : '截图'}
+                          style={{
+                            padding: '6px 10px',
+                            background: capturing === record.id ? '#f1f4f9' : '#fff',
+                            border: '1px solid var(--border)',
+                            borderRadius: 6,
+                            cursor: capturing === record.id ? 'not-allowed' : 'pointer',
+                            fontSize: 12,
+                            color: capturing === record.id ? '#999' : '#333'
+                          }}
+                        >
+                          {capturing === record.id ? '' : '📷'}
+                        </button>
                         {canPush ? (
-                          <button className="button secondary" type="button" onClick={() => handleSinglePush(record.id)} style={{ minWidth: 96 }}>
-                            推送
+                          <button
+                            type="button"
+                            onClick={() => handleSinglePush(record.id)}
+                            title="推送"
+                            style={{
+                              padding: '6px 10px',
+                              background: '#fff',
+                              border: '1px solid var(--border)',
+                              borderRadius: 6,
+                              cursor: 'pointer',
+                              fontSize: 12,
+                              color: '#333'
+                            }}
+                          >
+                            📤
                           </button>
-                        ) : (
-                          '-'
-                        )}
+                        ) : null}
                         {canDelete ? (
-                          <button className="button secondary" type="button" onClick={() => handleDelete(record.id)} disabled={deleting === record.id} style={{ minWidth: 96 }}>
-                            {deleting === record.id ? '删除中...' : '删除'}
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(record.id)}
+                            disabled={deleting === record.id}
+                            title={deleting === record.id ? '删除中...' : '删除'}
+                            style={{
+                              padding: '6px 10px',
+                              background: deleting === record.id ? '#f1f4f9' : '#fff',
+                              border: '1px solid var(--border)',
+                              borderRadius: 6,
+                              cursor: deleting === record.id ? 'not-allowed' : 'pointer',
+                              fontSize: 12,
+                              color: deleting === record.id ? '#999' : '#d14343'
+                            }}
+                          >
+                            🗑
                           </button>
                         ) : null}
                       </div>
@@ -406,7 +507,7 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
 
                   {open ? (
                     <tr>
-                      <td colSpan={13} style={{ background: '#f8fafc', padding: 20 }}>
+                      <td colSpan={14} style={{ background: '#f8fafc', padding: 20 }}>
                         <div className="grid grid-2" style={{ gap: 20 }}>
                           <div>
                             <h3 style={{ margin: '0 0 8px' }}>解析保存内容</h3>
@@ -444,13 +545,59 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
                                 </pre>
                               </>
                             ) : null}
-                            {canPush ? (
-                              <div className="stack" style={{ marginTop: 12 }}>
+                            {detail?.images && detail.images.length > 0 ? (
+                              <>
+                                <h3 style={{ margin: '12px 0 8px' }}>截图 ({detail.images.length} 张)</h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+                                  {detail.images.map((image) => (
+                                    <div key={image.id} style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
+                                      <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+                                        <span style={{
+                                          background: image.uploadStatus === 'UPLOADED' ? '#eaf7ef' : image.uploadStatus === 'FAILED' ? '#fdeaea' : '#fff4e6',
+                                          color: image.uploadStatus === 'UPLOADED' ? '#0f9d58' : image.uploadStatus === 'FAILED' ? '#d14343' : '#b45309',
+                                          padding: '2px 8px',
+                                          borderRadius: 999,
+                                          fontSize: 11,
+                                          fontWeight: 600
+                                        }}>
+                                          {image.uploadStatus === 'UPLOADED' ? '已上传' : image.uploadStatus === 'FAILED' ? '失败' : '待上传'}
+                                        </span>
+                                      </div>
+                                      <div style={{ fontSize: 11, color: '#999', marginBottom: 4 }}>
+                                        {image.mimeType} · {(image.fileSize / 1024).toFixed(1)} KB
+                                      </div>
+                                      {image.vendorUrl ? (
+                                        <div style={{ fontSize: 11, color: '#0f9d58', wordBreak: 'break-all' }}>
+                                          客户 URL: {image.vendorUrl}
+                                        </div>
+                                      ) : null}
+                                      <div style={{ fontSize: 11, color: '#999', wordBreak: 'break-all', marginTop: 4 }}>
+                                        本地: {image.localPath}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            ) : (
+                              <div style={{ marginTop: 12 }}>
+                                <div style={{ padding: 12, background: '#fdeaea', borderRadius: 12, fontSize: 13, color: '#d14343', marginBottom: 12 }}>
+                                  暂无截图，该记录无法推送
+                                </div>
+                                <button className="button" type="button" onClick={() => handleScreenshot(record.id)} disabled={capturing === record.id}>
+                                  {capturing === record.id ? '截图中...' : '立即截图'}
+                                </button>
+                              </div>
+                            )}
+                            <div className="stack" style={{ marginTop: 12 }}>
+                              <button className="button secondary" type="button" onClick={() => handleScreenshot(record.id)} disabled={capturing === record.id}>
+                                {capturing === record.id ? '截图中...' : '重新截图'}
+                              </button>
+                              {canPush ? (
                                 <button className="button" type="button" onClick={() => handleSinglePush(record.id)}>
                                   推送这条记录
                                 </button>
-                              </div>
-                            ) : null}
+                              ) : null}
+                            </div>
                             {rowMessages[record.id] ? (
                               <div style={{ marginTop: 12, background: rowMessages[record.id].includes('失败') ? '#fdeaea' : '#eef2ff', color: rowMessages[record.id].includes('失败') ? '#b42318' : '#4f46e5', border: '1px solid #f5c2c7', padding: 12, borderRadius: 12 }}>
                                 {rowMessages[record.id]}
@@ -467,6 +614,129 @@ export default function RecordsTableClient({ records }: { records: RecordItem[] 
           </tbody>
         </table>
       </div>
+
+      {screenshotPreview ? (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 20
+          }}
+          onClick={() => setScreenshotPreview(null)}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 16,
+              padding: 24,
+              maxWidth: 1200,
+              maxHeight: '90vh',
+              overflow: 'auto',
+              position: 'relative'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h3 style={{ margin: 0 }}>截图预览</h3>
+              <button
+                type="button"
+                onClick={() => setScreenshotPreview(null)}
+                style={{
+                  background: '#f1f4f9',
+                  border: 'none',
+                  borderRadius: 6,
+                  padding: '6px 12px',
+                  cursor: 'pointer',
+                  fontSize: 14
+                }}
+              >
+                关闭
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: 20 }}>
+              {screenshotPreview.images.map((image) => (
+                <div key={image.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+                  <div style={{ marginBottom: 12 }}>
+                    <span style={{
+                      background: image.uploadStatus === 'UPLOADED' ? '#eaf7ef' : image.uploadStatus === 'FAILED' ? '#fdeaea' : '#fff4e6',
+                      color: image.uploadStatus === 'UPLOADED' ? '#0f9d58' : image.uploadStatus === 'FAILED' ? '#d14343' : '#b45309',
+                      padding: '4px 12px',
+                      borderRadius: 999,
+                      fontSize: 12,
+                      fontWeight: 600
+                    }}>
+                      {image.uploadStatus === 'UPLOADED' ? '已上传' : image.uploadStatus === 'FAILED' ? '失败' : '待上传'}
+                    </span>
+                  </div>
+                  <img
+                    src={`/api/records/${screenshotPreview.recordId}/images/${image.id}`}
+                    alt="截图"
+                    onClick={() => setFullscreenImage({ src: `/api/records/${screenshotPreview.recordId}/images/${image.id}`, alt: image.localPath })}
+                    style={{ width: '100%', height: 300, objectFit: 'contain', borderRadius: 8, marginBottom: 12, cursor: 'zoom-in', background: '#f8fafc' }}
+                  />
+                  <div style={{ fontSize: 12, color: '#666', wordBreak: 'break-all', lineHeight: 1.5 }}>
+                    {image.localPath}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {fullscreenImage ? (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.95)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+            padding: 20
+          }}
+          onClick={() => setFullscreenImage(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setFullscreenImage(null)}
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              background: '#fff',
+              border: 'none',
+              borderRadius: 50,
+              width: 40,
+              height: 40,
+              cursor: 'pointer',
+              fontSize: 20,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            
+          </button>
+          <img
+            src={fullscreenImage.src}
+            alt={fullscreenImage.alt}
+            style={{ maxWidth: '95%', maxHeight: '95%', objectFit: 'contain' }}
+          />
+        </div>
+      ) : null}
     </>
   );
 }

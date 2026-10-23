@@ -2,6 +2,16 @@ import { NextResponse } from 'next/server';
 import { POST as processRecords } from '@/app/api/records/route';
 import { requireExternalApiClient, logExternalApiRequest } from '@/lib/external-api';
 import { pushExistingRecords } from '@/lib/push-workflow';
+import { appendFileSync } from 'fs';
+import { join } from 'path';
+
+function debugLog(msg: string) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  console.log(msg);
+  try {
+    appendFileSync(join(process.cwd(), 'data', 'plugin-debug.log'), line);
+  } catch {}
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Headers': 'Authorization, Content-Type',
@@ -28,11 +38,29 @@ export async function POST(request: Request) {
   }
 
   const body = await request.clone().json().catch(() => ({}));
+  debugLog(`进入插件路由, autoPush=${body?.autoPush}`);
   const response = (await processRecords(request)) ?? NextResponse.json({ code: 50000, message: '服务器未返回响应' }, { status: 500 });
-  if (response.ok && body?.autoPush !== false) {
-    const payload = await response.clone().json().catch(() => ({}));
-    const recordIds = Array.isArray(payload?.savedRecordIds) ? payload.savedRecordIds.filter((id: unknown): id is string => typeof id === 'string') : [];
-    if (recordIds.length > 0) {
+  debugLog(`response.ok=${response.ok}, status=${response.status}`);
+
+  if (!response.ok) {
+    void logExternalApiRequest({
+      clientId: auth.client.id,
+      path: '/api/plugin/records',
+      method: 'POST',
+      requestIp: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? request.headers.get('x-real-ip')?.trim() ?? null,
+      responseCode: response.status,
+      costMs: Date.now() - startedAt
+    });
+    return withCors(response);
+  }
+
+  const payload = await response.clone().json().catch(() => ({}));
+  const recordIds = Array.isArray(payload?.savedRecordIds) ? payload.savedRecordIds.filter((id: unknown): id is string => typeof id === 'string') : [];
+  debugLog(`savedRecordIds=${JSON.stringify(recordIds)}, ok=${payload?.ok}, created=${payload?.created}`);
+
+  if (recordIds.length > 0) {
+    // 截图由 /api/records 入库时统一触发，这里不再重复；只负责推送与响应合并。
+    if (body?.autoPush !== false) {
       try {
         const pushResult = await pushExistingRecords(auth.client.createdById, recordIds);
         const result = { ...payload, pushed: pushResult.results.reduce((sum, item) => sum + item.inserted, 0), pushFailed: pushResult.results.reduce((sum, item) => sum + item.failed, 0), pushResult };
@@ -53,6 +81,7 @@ export async function POST(request: Request) {
       }
     }
   }
+
   void logExternalApiRequest({
     clientId: auth.client.id,
     path: '/api/plugin/records',

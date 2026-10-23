@@ -121,6 +121,14 @@ if ! remote "npm run build"; then
 fi
 log "构建成功。"
 
+# ---- 步骤 4.5：补齐 standalone 静态资源 ----
+# output:standalone 的产物追踪不会带上 .next/static，漏掉这一步线上 HTML 引用的
+# 每个 js/css 都会 404（页面能打开但全部报错，等于前端整站挂）。
+log "== 步骤 4.5：把 .next/static 复制进 standalone =="
+remote "mkdir -p .next/standalone/.next/static && cp -a .next/static/. .next/standalone/.next/static/ && \
+  { [ -d public ] && mkdir -p .next/standalone/public && cp -a public/. .next/standalone/public/ || echo '无 public 目录，跳过'; } && \
+  find .next/standalone/.next/static -name '*.js' | wc -l | xargs echo standalone 静态 js 文件数："
+
 # ---- 步骤 5：重启 pm2 ----
 log "== 步骤 5：pm2 restart ${PM2_APP} =="
 remote "pm2 restart ${PM2_APP} && sleep 3 && pm2 status ${PM2_APP}"
@@ -132,7 +140,11 @@ remote "PORT=\$(pm2 env 0 2>/dev/null | awk -F': ' '/^PORT:/{print \$2; exit}');
   [ -z \"\$PORT\" ] && PORT=\$(grep -E '^PORT=' .env 2>/dev/null | head -1 | cut -d= -f2); \
   PORT=\${PORT:-3000}; \
   echo 检查应用端口 \$PORT; \
-  curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:\$PORT/api/health || echo 'curl 失败（稍后用 pm2 logs 查看）'"
+  curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:\$PORT/api/health || echo 'curl 失败（稍后用 pm2 logs 查看）'; \
+  ASSET=\$(curl -s http://127.0.0.1:\$PORT/ | grep -oE '/_next/static/[a-zA-Z0-9._/-]+\.js' | head -1); \
+  if [ -n \"\$ASSET\" ]; then echo \"静态资源 \$ASSET\"; \
+    curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:\$PORT\$ASSET; \
+  else echo '未取到静态资源引用（首页无 js？）'; fi"
 
 log "== 更新完成 =="
 log "代码备份：${BACKUP_PATH}"

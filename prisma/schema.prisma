@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-1.1.x"]
 }
 
 datasource db {
@@ -215,6 +216,7 @@ model DataRecord {
   createdBy        User          @relation("RecordCreatedBy", fields: [createdById], references: [id])
   pushItems        PushJobItem[]
   lastPluginClient ExternalApiClient? @relation(fields: [lastPluginClientId], references: [id], onDelete: SetNull)
+  images           RecordImage[]
 
   @@index([lastPluginReceivedAt, id])
   @@index([lastPluginClientId, lastPluginReceivedAt])
@@ -225,6 +227,28 @@ model DataRecord {
   @@index([createdById, createdAt])
   @@index([sourceDepartment, createdAt])
   @@index([sourceName])
+}
+
+model RecordImage {
+  id              String      @id @default(cuid())
+  recordId        String
+  record          DataRecord  @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  sourceUrl       String      @db.Text
+  localPath       String      @db.Text
+  vendorUrl       String?     @db.Text
+  mimeType        String      @default("image/png")
+  fileSize        Int
+  sha256          String?
+
+  uploadStatus    String      @default("PENDING")
+  uploadedAt      DateTime?
+  errorMessage    String?     @db.Text
+
+  createdAt       DateTime    @default(now())
+
+  @@index([recordId])
+  @@index([uploadStatus])
 }
 
 model PushJob {
@@ -356,6 +380,7 @@ model EventRecord {
   rowNo          Int
   createdAt      DateTime  @default(now())
 
+  @@index([category])
   @@index([category, publishTime, id])
   @@index([category, createdAt])
   @@index([source])

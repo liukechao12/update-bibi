@@ -10,7 +10,19 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const record = await prisma.dataRecord.findUnique({
     where: { id },
-    select: { id: true, text: true, rawSourceText: true, createdById: true }
+    include: {
+      images: {
+        select: {
+          id: true,
+          localPath: true,
+          vendorUrl: true,
+          uploadStatus: true,
+          mimeType: true,
+          fileSize: true
+        },
+        orderBy: { createdAt: 'asc' }
+      }
+    }
   });
 
   if (!record) {
@@ -21,7 +33,14 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ code: 40300, message: '无权限查看其他人的记录' }, { status: 403 });
   }
 
-  return NextResponse.json({ record: { id: record.id, text: record.text, rawSourceText: record.rawSourceText } });
+  return NextResponse.json({
+    record: {
+      id: record.id,
+      text: record.text,
+      rawSourceText: record.rawSourceText,
+      images: record.images
+    }
+  });
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {

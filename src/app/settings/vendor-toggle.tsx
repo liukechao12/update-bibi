@@ -11,6 +11,9 @@ type Config = {
   batchSize: number;
   timeoutMs: number;
   apiVersion: string;
+  screenshotServiceUrl: string;
+  screenshotServiceApiKey: string;
+  screenshotDir: string;
 };
 
 export default function VendorToggle({ initialConfig }: { initialConfig: Config }) {
@@ -74,6 +77,7 @@ export default function VendorToggle({ initialConfig }: { initialConfig: Config 
           <select className="select" value={config.apiVersion} onChange={(e) => save({ apiVersion: e.target.value })}>
             <option value="2">v2</option>
             <option value="3">v3</option>
+            <option value="4">v4（含图片）</option>
           </select>
         </div>
         <div>
@@ -99,6 +103,24 @@ export default function VendorToggle({ initialConfig }: { initialConfig: Config 
           <label className="helper" style={{ display: 'block', marginBottom: 6 }}>推送超时（毫秒）</label>
           <input className="input" type="number" min={10000} value={config.timeoutMs} onChange={(e) => save({ timeoutMs: Number(e.target.value) })} />
         </div>
+      </div>
+
+      <div className="grid grid-2" style={{ gap: 16, marginTop: 16 }}>
+        <div>
+          <label className="helper" style={{ display: 'block', marginBottom: 6 }}>截图服务地址</label>
+          <input className="input" value={config.screenshotServiceUrl} onChange={(e) => save({ screenshotServiceUrl: e.target.value })} placeholder="http://127.0.0.1:3100" />
+          <span className="helper" style={{ display: 'block', marginTop: 4, fontSize: 12, color: '#666' }}>普通网站 + 自动代理（小红书）都在同一个容器</span>
+        </div>
+        <div>
+          <label className="helper" style={{ display: 'block', marginBottom: 6 }}>截图服务 API Key（TOKEN）</label>
+          <input className="input" type="password" value={config.screenshotServiceApiKey} onChange={(e) => save({ screenshotServiceApiKey: e.target.value })} placeholder="生成 TOKEN，用于鉴权" />
+        </div>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <label className="helper" style={{ display: 'block', marginBottom: 6 }}>截图存储目录</label>
+        <input className="input" value={config.screenshotDir} onChange={(e) => save({ screenshotDir: e.target.value })} placeholder="/data/screenshots 或留空使用默认目录" />
+        <span className="helper" style={{ display: 'block', marginTop: 4, fontSize: 12, color: '#666' }}>截图文件保存的本地目录，留空则使用 ./data/screenshots</span>
       </div>
 
       <div className="stack" style={{ marginTop: 16 }}>
