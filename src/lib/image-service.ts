@@ -99,6 +99,121 @@ async function needsProxy(url: string): Promise<boolean> {
   return hosts.some((h) => host === h || host.endsWith(`.${h}`));
 }
 
+/**
+ * 需要「随机浏览器指纹」的域名清单；改文件即时生效，不用重启。
+ * 知乎这类站点会靠 navigator.webdriver / WebGL 渲染器 / Sec-CH-UA 等特征识别无头浏览器，
+ * 直接返回 403 验证页。只有清单里的域名才注入指纹，其余站点走原有路径不受影响。
+ */
+const DEFAULT_FINGERPRINT_HOSTS = ['zhihu.com'];
+let fingerprintHostsCache: { mtimeMs: number; hosts: string[] } | null = null;
+
+function getFingerprintHostsFile(): string {
+  return process.env.SCREENSHOT_FINGERPRINT_HOSTS_FILE || path.join(process.cwd(), 'data', 'fingerprint-hosts.txt');
+}
+
+async function readFingerprintHosts(): Promise<string[]> {
+  const file = getFingerprintHostsFile();
+  try {
+    const stat = await fs.stat(file);
+    if (fingerprintHostsCache && fingerprintHostsCache.mtimeMs === stat.mtimeMs) {
+      return fingerprintHostsCache.hosts;
+    }
+    const text = await fs.readFile(file, 'utf8');
+    const hosts = text
+      .split(/\r?\n/)
+      .map((line) => line.split('#')[0].trim().toLowerCase())
+      .filter(Boolean);
+    fingerprintHostsCache = { mtimeMs: stat.mtimeMs, hosts };
+    return hosts;
+  } catch {
+    return DEFAULT_FINGERPRINT_HOSTS;
+  }
+}
+
+async function needsFingerprint(url: string): Promise<boolean> {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  const hosts = await readFingerprintHosts();
+  return hosts.some((h) => host === h || host.endsWith(`.${h}`));
+}
+
+type FingerprintProfile = {
+  ua: string;
+  platform: string;
+  uaPlatform: string;
+  uaPlatformVersion: string;
+  brands: { brand: string; version: string }[];
+  fullVersion: string;
+  gpuVendor: string;
+  gpuRenderer: string;
+};
+
+// 每套 UA 与 client hints / GPU 字符串必须自洽，跨套混搭版本号对不上反而更容易被识破
+const FINGERPRINT_PROFILES: FingerprintProfile[] = [
+  {
+    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    platform: 'Win32',
+    uaPlatform: 'Windows',
+    uaPlatformVersion: '15.0.0',
+    brands: [
+      { brand: 'Google Chrome', version: '131' },
+      { brand: 'Chromium', version: '131' },
+      { brand: 'Not_A Brand', version: '24' }
+    ],
+    fullVersion: '131.0.6778.109',
+    gpuVendor: 'Google Inc. (NVIDIA)',
+    gpuRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  },
+  {
+    ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    platform: 'MacIntel',
+    uaPlatform: 'macOS',
+    uaPlatformVersion: '14.5.0',
+    brands: [
+      { brand: 'Google Chrome', version: '131' },
+      { brand: 'Chromium', version: '131' },
+      { brand: 'Not_A Brand', version: '24' }
+    ],
+    fullVersion: '131.0.6778.109',
+    gpuVendor: 'Google Inc. (Apple)',
+    gpuRenderer: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Pro, Unspecified Version)'
+  },
+  {
+    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+    platform: 'Win32',
+    uaPlatform: 'Windows',
+    uaPlatformVersion: '10.0.0',
+    brands: [
+      { brand: 'Chromium', version: '130' },
+      { brand: 'Not?A_Brand', version: '99' },
+      { brand: 'Google Chrome', version: '130' }
+    ],
+    fullVersion: '130.0.6723.117',
+    gpuVendor: 'Google Inc. (Intel)',
+    gpuRenderer: 'ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)'
+  }
+];
+
+function randomFingerprint() {
+  const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+  const base = pick(FINGERPRINT_PROFILES);
+  return {
+    ...base,
+    languages: ['zh-CN', 'zh', 'en-US', 'en'],
+    hardwareConcurrency: pick([4, 8, 12, 16]),
+    deviceMemory: pick([4, 8]),
+    timezone: 'Asia/Shanghai',
+    locale: 'zh-CN',
+    // 屏幕参数只用于指纹读取，不改 viewport，避免影响所有站点现有截图版式
+    screenWidth: pick([1920, 2560, 1536]),
+    screenHeight: pick([1080, 1440, 864])
+  };
+}
+
 function normalizeWaitUntil(waitUntil: string): string {
   /** Browserless 用 Puppeteer 等待语义，没有 Playwright 的 networkidle。 */
   return waitUntil === 'networkidle' ? 'networkidle2' : waitUntil;
@@ -174,19 +289,96 @@ async function captureViaFunction(
   waitUntil: string,
   waitAfter: number | undefined,
   proxy: string | null,
+  fingerprint = false,
   signal?: AbortSignal
 ): Promise<ScreenshotResult> {
   const delay = Number(waitAfter || 0);
+  // 指纹站点正文是异步渲染的，2 秒不够，至少等 5 秒让 SPA 出内容
+  const settle = fingerprint ? Math.max(delay, 5000) : delay;
   const ctxOptions = proxy ? { proxyServer: proxy } : {};
+  const fp = fingerprint ? randomFingerprint() : null;
+
+  // UA 必须和 Sec-CH-UA client hints 成对设置：只改 UA 不改 hints 反而更像机器人
+  const uaBlock = fp
+    ? `
+    await cdp.send('Emulation.setUserAgentOverride', {
+      userAgent: ${JSON.stringify(fp.ua)},
+      acceptLanguage: 'zh-CN,zh;q=0.9',
+      platform: ${JSON.stringify(fp.platform)},
+      userAgentMetadata: {
+        brands: ${JSON.stringify(fp.brands)},
+        fullVersionList: ${JSON.stringify(fp.brands.map((b) => ({ brand: b.brand, version: b.brand === 'Google Chrome' || b.brand === 'Chromium' ? fp.fullVersion : b.version })))},
+        fullVersion: ${JSON.stringify(fp.fullVersion)},
+        platform: ${JSON.stringify(fp.uaPlatform)},
+        platformVersion: ${JSON.stringify(fp.uaPlatformVersion)},
+        architecture: 'x86',
+        model: '',
+        mobile: false,
+        bitness: '64',
+        wow64: false
+      }
+    });
+    await cdp.send('Emulation.setTimezoneOverride', { timezoneId: ${JSON.stringify(fp.timezone)} });
+    try { await cdp.send('Emulation.setLocaleOverride', { locale: ${JSON.stringify(fp.locale)} }); } catch (e) {}
+    await p.evaluateOnNewDocument((f) => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'languages', { get: () => f.languages });
+      Object.defineProperty(navigator, 'platform', { get: () => f.platform });
+      Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => f.hardwareConcurrency });
+      Object.defineProperty(navigator, 'deviceMemory', { get: () => f.deviceMemory });
+      Object.defineProperty(navigator, 'vendor', { get: () => 'Google Inc.' });
+      Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 });
+      // 无头 Chrome 的 plugins 是空的，真实浏览器至少有 PDF 相关几项
+      Object.defineProperty(navigator, 'plugins', { get: () => [
+        { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+        { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: '' },
+        { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: '' }
+      ] });
+      // 无头默认报 Google SwiftShader，是最强的机器人特征之一
+      const patchWebgl = (proto) => {
+        if (!proto) return;
+        const getParameter = proto.getParameter;
+        proto.getParameter = function (param) {
+          if (param === 37445) return f.gpuVendor;
+          if (param === 37446) return f.gpuRenderer;
+          return getParameter.call(this, param);
+        };
+      };
+      patchWebgl(typeof WebGLRenderingContext !== 'undefined' && WebGLRenderingContext.prototype);
+      patchWebgl(typeof WebGL2RenderingContext !== 'undefined' && WebGL2RenderingContext.prototype);
+      Object.defineProperty(screen, 'width', { get: () => f.screenWidth });
+      Object.defineProperty(screen, 'height', { get: () => f.screenHeight });
+      Object.defineProperty(screen, 'availWidth', { get: () => f.screenWidth });
+      Object.defineProperty(screen, 'availHeight', { get: () => f.screenHeight - 40 });
+      Object.defineProperty(screen, 'colorDepth', { get: () => 24 });
+      Object.defineProperty(screen, 'pixelDepth', { get: () => 24 });
+      if (!window.chrome) window.chrome = {};
+      if (!window.chrome.runtime) window.chrome.runtime = { connect: () => {}, sendMessage: () => {} };
+    }, ${JSON.stringify(fp)});`
+    : '';
+
+  // 知乎对未登录用户弹登录框遮住正文，截图前把弹窗和遮罩移除（仅指纹站点执行）
+  const cleanupBlock = fingerprint
+    ? `
+    await p.evaluate(() => {
+      ['.signFlowModal', '.Modal-wrapper', '.Modal-backdrop'].forEach((s) => {
+        document.querySelectorAll(s).forEach((el) => el.remove());
+      });
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));`
+    : '';
+
   const code = `export default async ({ page }) => {
   const ctx = await page.browser().createBrowserContext(${JSON.stringify(ctxOptions)});
   try {
     const p = await ctx.newPage();
     await p.setViewport({ width: 1280, height: 800 });
     const cdp = await p.createCDPSession();
-    await cdp.send('Security.setIgnoreCertificateErrors', { ignore: true });
+    await cdp.send('Security.setIgnoreCertificateErrors', { ignore: true });${uaBlock}
     await p.goto(${JSON.stringify(url)}, { waitUntil: ${JSON.stringify(normalizeWaitUntil(waitUntil))}, timeout: 40000 });
-    ${delay > 0 ? `await new Promise((resolve) => setTimeout(resolve, ${delay}));` : ''}
+    ${settle > 0 ? `await new Promise((resolve) => setTimeout(resolve, ${settle}));` : ''}${cleanupBlock}
     const buf = await p.screenshot({ type: 'png' });
     // 沙箱里没有 Buffer，Uint8Array.toString('base64') 不会做 base64，必须分块 btoa
     let bin = '';
@@ -249,6 +441,12 @@ async function captureScreenshotOnce(
   const base = (config.screenshotServiceUrl || 'http://127.0.0.1:3100').replace(/\/$/, '');
   const token = config.screenshotServiceApiKey;
 
+  // 指纹站点（如知乎）走 /screenshot 会把 403 验证页当成正常图返回，必须直接走 /function 注入指纹；
+  // 实测指纹 alone 即可过反爬，不需要再套代理，放在代理判断之前也避免白耗代理额度
+  if (await needsFingerprint(url)) {
+    return captureViaFunction(base, token, url, waitUntil, waitAfter, null, true, signal);
+  }
+
   if (!(await needsProxy(url))) {
     try {
       return await captureViaDirect(base, token, url, waitUntil, waitAfter, signal);
@@ -256,13 +454,13 @@ async function captureScreenshotOnce(
       // 直连 500 都是页面级导航错误（证书/被拦等），走 /function 用 CDP 忽略证书再试一次
       const msg = error instanceof Error ? error.message : String(error);
       if (!(isCertError(error) || msg.includes('截图服务错误：HTTP 500'))) throw error;
-      return captureViaFunction(base, token, url, waitUntil, waitAfter, null, signal);
+      return captureViaFunction(base, token, url, waitUntil, waitAfter, null, false, signal);
     }
   }
 
   const proxy = await getFreshProxy();
   try {
-    return await captureViaFunction(base, token, url, waitUntil, waitAfter, proxy, signal);
+    return await captureViaFunction(base, token, url, waitUntil, waitAfter, proxy, false, signal);
   } catch (error) {
     if (await isProxyRelatedError(error)) {
       invalidateProxy();
@@ -501,6 +699,102 @@ export async function captureAndSaveForRecord(
     }).catch(() => {
       // 忽略写入失败记录错误
     });
+  }
+}
+
+/**
+ * 保存「插件在浏览器里截好的首屏图」。
+ *
+ * 与服务端自己截图（captureAndSaveForRecord）的区别：
+ *  - 不调用 Browserless，图已经是现成的 base64；
+ *  - 因此也**不需要** screenshotServiceUrl 配置就能工作；
+ *  - 但后续「存本地 → 建 RecordImage → 上传客户接口 → 写 vendorUrl」完全复用同一套，
+ *    保证推送阶段读图的逻辑不需要区分图是谁截的。
+ *
+ * 客户图片接口只收 PNG（JPEG 会被 415 拒掉），所以这里校验魔数，非 PNG 直接失败，
+ * 避免把一张注定上传不了的图写成 UPLOADED 之前的中间状态。
+ *
+ * @param recordId 记录 ID
+ * @param sourceUrl 笔记/文章链接（写入 RecordImage.sourceUrl 供追溯）
+ * @param base64 截图的 base64（不含 data: 前缀）
+ * @returns 保存结果，便于接口把状态回给插件
+ */
+export async function savePluginScreenshotForRecord(
+  recordId: string,
+  sourceUrl: string,
+  base64: string
+): Promise<{ saved: boolean; uploaded: boolean; message: string }> {
+  let imageBuffer: Buffer;
+  try {
+    imageBuffer = Buffer.from(base64, 'base64');
+  } catch {
+    return { saved: false, uploaded: false, message: '截图 base64 解码失败' };
+  }
+
+  if (imageBuffer.length === 0) {
+    return { saved: false, uploaded: false, message: '截图内容为空' };
+  }
+
+  const isPng = imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50 &&
+    imageBuffer[2] === 0x4e && imageBuffer[3] === 0x47;
+  if (!isPng) {
+    return { saved: false, uploaded: false, message: '截图不是 PNG 格式，客户接口只接受 PNG' };
+  }
+
+  // 与服务端截图一致：重新提交时覆盖旧图，避免一条记录堆多张
+  const oldImages = await prisma.recordImage.findMany({ where: { recordId } });
+  for (const old of oldImages) {
+    if (old.localPath) {
+      await fs.unlink(old.localPath).catch(() => {});
+    }
+  }
+  if (oldImages.length > 0) {
+    await prisma.recordImage.deleteMany({ where: { recordId } });
+  }
+
+  const recordDir = await ensureScreenshotDir(recordId);
+  const localPath = path.join(recordDir, `${Date.now()}.png`);
+  await fs.writeFile(localPath, imageBuffer);
+
+  const sha256 = crypto.createHash('sha256').update(imageBuffer).digest('hex');
+  const fileSize = imageBuffer.length;
+
+  // 空白判定阈值与服务端截图保持一致（PNG 空白页约 4.7KB）
+  const isBlank = fileSize < 6 * 1024;
+
+  const recordImage = await prisma.recordImage.create({
+    data: {
+      recordId,
+      sourceUrl,
+      localPath,
+      mimeType: 'image/png',
+      fileSize,
+      sha256,
+      uploadStatus: isBlank ? 'FAILED' : 'PENDING',
+      errorMessage: isBlank ? '插件截图完全空白' : null
+    }
+  });
+
+  if (isBlank) {
+    console.log(`记录 ${recordId} 插件截图空白 (${(fileSize / 1024).toFixed(1)}KB)，跳过上传`);
+    return { saved: true, uploaded: false, message: '截图已保存，但内容为空白未上传' };
+  }
+
+  try {
+    const uploadResult = await uploadLocalImageToVendor(localPath, 'image/png');
+    await prisma.recordImage.update({
+      where: { id: recordImage.id },
+      data: { vendorUrl: uploadResult.url, uploadStatus: 'UPLOADED', uploadedAt: new Date() }
+    });
+    return { saved: true, uploaded: true, message: '截图已保存并上传' };
+  } catch (uploadError) {
+    const errorMessage = uploadError instanceof Error ? uploadError.message : String(uploadError);
+    console.error(`记录 ${recordId} 插件截图上传失败:`, errorMessage);
+    await prisma.recordImage
+      .update({ where: { id: recordImage.id }, data: { uploadStatus: 'FAILED', errorMessage } })
+      .catch(() => {});
+    // 图已落库，推送阶段仍可按「无图」降级 v3，所以这里不算致命失败
+    return { saved: true, uploaded: false, message: `截图已保存，上传客户接口失败：${errorMessage}` };
   }
 }
 

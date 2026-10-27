@@ -9,7 +9,16 @@ import { MediaRuleType } from '@prisma/client';
 import { classifyAuthorType, classifyPublisherType, getDomainFromUrl } from '@/lib/media-classification';
 import { syncDailyCollectionEvents } from '@/lib/daily-event-sync';
 import { scheduleScreenshots } from '@/lib/post-entry';
+import { savePluginScreenshotForRecord } from '@/lib/image-service';
 import { generateBatchNo } from '@/lib/business-no';
+
+/**
+ * 插件自带截图的 base64 长度上限。
+ *
+ * 首屏 PNG 一般几百 KB，base64 膨胀约 1.33 倍；放到 8MB 足够覆盖高分屏，
+ * 又能挡住异常客户端塞超大字符串把 JSON 解析打爆。
+ */
+const PLUGIN_SCREENSHOT_MAX_BASE64 = 8 * 1024 * 1024;
 
 function resolveMediaLibraryName(domain: string, authorName: string) {
   const labelMap: Record<string, string> = {
@@ -39,6 +48,17 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const sourceText = String(body?.sourceText ?? '');
   const selectedTendency = String(body?.tendency ?? '').trim();
+
+  // 插件（小红书抓取）在浏览器里截好首屏一起带过来；不带这个字段时行为完全不变，
+  // 仍由入库后的 scheduleScreenshots 走 Browserless。
+  const pluginScreenshotBase64 = typeof body?.screenshotBase64 === 'string' ? body.screenshotBase64.trim() : '';
+
+  if (pluginScreenshotBase64 && pluginScreenshotBase64.length > PLUGIN_SCREENSHOT_MAX_BASE64) {
+    return NextResponse.json(
+      { code: 40002, message: `截图过大（超过 ${Math.round(PLUGIN_SCREENSHOT_MAX_BASE64 / 1024 / 1024)}MB），请重试` },
+      { status: 400 }
+    );
+  }
 
   if (!sourceText.trim() && !Array.isArray(body?.records)) {
     return NextResponse.json({ code: 40002, message: '请输入 sourceText 或 records' }, { status: 400 });
@@ -320,11 +340,34 @@ export async function POST(request: Request) {
 
   const eventSync = await syncDailyCollectionEvents(savedRecords.map(({ record, tendency, rowNo }) => ({ record, tendency, rowNo })));
 
+  // 插件自带截图时：同步存图后再返回。
+  // 必须 await —— 插件路由拿到 savedRecordIds 后会立刻推送，
+  // 推送阶段是按「有没有已上传的图」决定走 v4 还是降级 v3 的，
+  // 如果这里也丢到后台异步，等于图永远赶不上这一趟推送。
+  let pluginScreenshot: { saved: boolean; uploaded: boolean; message: string } | null = null;
+  if (pluginScreenshotBase64 && savedRecords.length > 0) {
+    const target = savedRecords[0];
+    pluginScreenshot = await savePluginScreenshotForRecord(
+      target.id,
+      String(target.record.url ?? ''),
+      pluginScreenshotBase64
+    ).catch((error) => ({
+      saved: false,
+      uploaded: false,
+      message: error instanceof Error ? error.message : String(error)
+    }));
+  } else if (pluginScreenshotBase64) {
+    pluginScreenshot = { saved: false, uploaded: false, message: '本次没有新增或更新记录，截图未保存' };
+  }
+
   // 入库即触发截图（不等结果）：插件路由与网页粘贴录入共用这里，避免两条路径各截一次。
   // 截图失败的记录按既有规则降级 v3，不阻塞录入。
+  // 插件已经自己截过图的那条要排除掉，否则服务端会再截一次把插件的图覆盖掉
+  // （小红书有登录墙，服务端截出来多半是登录页，覆盖等于把好图换成坏图）。
+  const pluginShotRecordId = pluginScreenshot?.saved ? savedRecords[0].id : null;
   scheduleScreenshots(
     savedRecords
-      .filter(({ record }) => Boolean(record.url))
+      .filter(({ id, record }) => Boolean(record.url) && id !== pluginShotRecordId)
       .map(({ id, record }) => ({ id, url: record.url }))
   );
 
@@ -337,6 +380,8 @@ export async function POST(request: Request) {
     blockedRecords,
     eventSync,
     savedRecordIds: savedRecords.map((item) => item.id),
+    // 插件自带截图的处理结果；没带截图时为 null，插件据此判断要不要提示
+    screenshot: pluginScreenshot,
     preview: previewRecords,
     missingFields: missingForResponse,
     rawBlocks,
